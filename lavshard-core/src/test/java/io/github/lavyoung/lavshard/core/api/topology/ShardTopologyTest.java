@@ -112,7 +112,24 @@ class ShardTopologyTest {
                 Map.of("node-00", node)
         ))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("missing placement for bucket: ");
+                .hasMessage("bucketId out of range: 1, bucketCount = 1");
+    }
+
+    @Test
+    void shouldRejectOutOfRangeBucketLookup() {
+        // Given
+        ShardNode node0 = node("node-00", "ds0", "t_order_00");
+        ShardNode node1 = node("node-01", "ds0", "t_order_01");
+        ShardTopology topology = topology(node0, node1);
+
+        // When / Then
+        assertThatThrownBy(() -> topology.nodeForBucket(-1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("bucketId out of range: -1, bucketCount = 2");
+
+        assertThatThrownBy(() -> topology.nodeForBucket(2))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("bucketId out of range: 2, bucketCount = 2");
     }
 
     @Test

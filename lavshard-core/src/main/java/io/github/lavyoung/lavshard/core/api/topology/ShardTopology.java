@@ -62,8 +62,10 @@ public record ShardTopology(
      * @throws IllegalArgumentException 当桶编号越界时
      */
     public ShardNode nodeForBucket(int bucketId) {
-        if (bucketId < 0 || bucketId > bucketCount) {
-            throw new IllegalArgumentException("bucketId must be between 0 and " + (bucketCount - 1));
+        if (bucketId < 0 || bucketId >= bucketCount) {
+            throw new IllegalArgumentException(
+                    "bucketId out of range: " + bucketId + ", bucketCount = " + bucketCount
+            );
         }
         return nodes.get(bucketPlacements.get(bucketId));
     }
@@ -106,8 +108,10 @@ public record ShardTopology(
             Integer bucketId = entry.getKey();
             String nodeId = entry.getValue();
 
-            if (bucketId == null || bucketId < 0 || bucketId > bucketCount) {
-                throw new IllegalArgumentException("bucketId must between 0 and bucketCount, bucketId = " + bucketId);
+            if (bucketId == null || bucketId < 0 || bucketId >= bucketCount) {
+                throw new IllegalArgumentException(
+                        "bucketId out of range: " + bucketId + ", bucketCount = " + bucketCount
+                );
             }
 
             if (nodeId == null || nodeId.isBlank()) {
