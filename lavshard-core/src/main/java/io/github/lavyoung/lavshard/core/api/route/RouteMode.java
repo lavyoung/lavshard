@@ -7,5 +7,9 @@ package io.github.lavyoung.lavshard.core.api.route;
  * @version 0.1.0
  * @date 2026/9/10
  */
-public class RouteMode {
+public enum RouteMode {
+
+    SINGLE,
+    MULTI,
+    BROADCAST
 }
