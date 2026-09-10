@@ -1,13 +1,22 @@
 package io.github.lavyoung.lavshard.core.api.exception;
 
 /**
- * 算法执行失败（如 Range 规则解析错误、分片键类型不匹配）。
+ * 算法执行失败
  *
  * @author <a href="mailto:lavyoung1325@outlook.com">lavyoung</a>
  * @version 0.1.0
  * @data 2026/9/10
  */
 public class ShardAlgorithmException extends LavShardException {
+
     public ShardAlgorithmException(String message) {
+        super(message);
+    }
+
+    public ShardAlgorithmException(
+            String message,
+            Throwable cause
+    ) {
+        super(message, cause);
     }
 }

@@ -14,4 +14,18 @@ package io.github.lavyoung.lavshard.core.api.exception;
  * @data 2026/9/10
  */
 public class LavShardException extends RuntimeException {
+
+    public LavShardException() {
+    }
+
+    public LavShardException(String message) {
+        super(message);
+    }
+
+    public LavShardException(
+            String message,
+            Throwable cause
+    ) {
+        super(message, cause);
+    }
 }
