@@ -1,5 +1,7 @@
 # Compiled class file
 *.class
+target
+.flattened-pom.xml
 
 # Log file
 *.log
@@ -9,6 +11,9 @@
 
 # Mobile Tools for Java (J2ME)
 .mtj.tmp/
+
+# idea
+.idea
 
 # Package Files #
 *.jar

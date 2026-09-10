@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.lavyoung</groupId>
+        <artifactId>lavshard-parent</artifactId>
+        <version>${revision}</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>lavshard-example</artifactId>
+    <packaging>pom</packaging>
+
+    <name>${artifactId}-${revision}</name>
+    <description>LavShard usage examples</description>
+
+    <modules>
+        <module>lavshard-example-simple</module>
+        <module>lavshard-example-multi-datasource</module>
+    </modules>
+
+    <!-- 示例模块不需要发布到 Maven 仓库 -->
+    <properties>
+        <maven.deploy.skip>true</maven.deploy.skip>
+        <maven.install.skip>true</maven.install.skip>
+        <gpg.skip>true</gpg.skip>
+        <jacoco.skip>true</jacoco.skip>
+        <spotless.check.skip>true</spotless.check.skip>
+    </properties>
+
+</project>
