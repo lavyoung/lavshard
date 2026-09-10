@@ -44,6 +44,7 @@
         <module>lavshard-spring-boot-starter</module>
         <module>lavshard-example</module>
         <module>lavshard-test</module>
+        <module>lavshard-mybatis</module>
     </modules>
 
     <!-- ==================== 版本属性统一管理 ==================== -->
