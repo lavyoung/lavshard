@@ -15,8 +15,8 @@
     <artifactId>lavshard-core</artifactId>
     <packaging>jar</packaging>
 
-    <name>${artifactId}-${revision}</name>
-    <description>LavShard core routing engine (no Spring dependency)</description>
+    <name>${project.artifactId}-${revision}</name>
+    <description>分片算法、SQL 解析、路由计算、动态数据源抽象、上下文、SPI</description>
 
     <dependencies>
         <!-- ==================== 必选依赖 ==================== -->
@@ -51,5 +51,21 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Automatic-Module-Name>io.github.lavyoung.lavshard.core</Automatic-Module-Name>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 
 </project>

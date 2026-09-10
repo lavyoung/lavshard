@@ -15,7 +15,7 @@
     <artifactId>lavshard-example</artifactId>
     <packaging>pom</packaging>
 
-    <name>${artifactId}-${revision}</name>
+    <name>${project.artifactId}-${revision}</name>
     <description>LavShard usage examples</description>
 
     <modules>

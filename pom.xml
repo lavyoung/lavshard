@@ -10,7 +10,7 @@
     <version>${revision}</version>
     <packaging>pom</packaging>
 
-    <name>${artifactId}-${revision}</name>
+    <name>${project.artifactId}-${revision}</name>
     <description>Lightweight database sharding and routing component</description>
     <url>https://github.com/lavyoung/lavshard</url>
 
@@ -54,9 +54,9 @@
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
 
         <!-- Java 版本 -->
-        <java.version>8</java.version>
-        <maven.compiler.source>8</maven.compiler.source>
-        <maven.compiler.target>8</maven.compiler.target>
+        <java.version>17</java.version>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
 
         <!-- 核心依赖版本 -->
         <spring-boot.version>3.2.5</spring-boot.version>
@@ -230,8 +230,7 @@
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>${maven-compiler-plugin.version}</version>
                     <configuration>
-                        <source>${java.version}</source>
-                        <target>${java.version}</target>
+                        <release>${java.version}</release>
                         <encoding>UTF-8</encoding>
                         <parameters>true</parameters>
                     </configuration>

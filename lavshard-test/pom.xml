@@ -15,8 +15,8 @@
     <artifactId>lavshard-test</artifactId>
     <packaging>jar</packaging>
 
-    <name>${artifactId}-${revision}</name>
-    <description>LavShard integration tests and benchmarks</description>
+    <name>${project.artifactId}-${revision}</name>
+    <description>跨模块集成测试、Spring Boot Starter 集成测试、JMH 性能压测</description>
 
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>

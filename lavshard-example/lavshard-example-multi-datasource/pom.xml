@@ -15,7 +15,7 @@
     <artifactId>lavshard-example-multi-datasource</artifactId>
     <packaging>jar</packaging>
 
-    <name>${artifactId}-${revision}</name>
+    <name>${project.artifactId}-${revision}</name>
     <description>Multi-datasource example: database + table sharding</description>
 
     <properties>
