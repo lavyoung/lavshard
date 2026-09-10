@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+
 /**
  * 分片算法注册表
  *
@@ -41,8 +42,8 @@ public final class ShardAlgorithmRegistry {
         for (ShardAlgorithm algorithm : algorithms) {
             Objects.requireNonNull(algorithm, "algorithm must not be null");
             String name = requireValidName(algorithm.name());
-            ShardAlgorithm existing  = registeredAlgorithms.putIfAbsent(name, algorithm);
-            if (existing  != null) {
+            ShardAlgorithm existing = registeredAlgorithms.putIfAbsent(name, algorithm);
+            if (existing != null) {
                 throw new IllegalArgumentException(
                         "duplicate shard algorithm name: " + name
                 );

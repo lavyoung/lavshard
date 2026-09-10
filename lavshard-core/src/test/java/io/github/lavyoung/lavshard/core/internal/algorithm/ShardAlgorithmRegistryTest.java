@@ -4,7 +4,6 @@ import io.github.lavyoung.lavshard.core.api.algorithm.AlgorithmConfig;
 import io.github.lavyoung.lavshard.core.api.algorithm.ShardAlgorithm;
 import io.github.lavyoung.lavshard.core.api.algorithm.ShardBucket;
 import io.github.lavyoung.lavshard.core.api.algorithm.ShardValue;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
