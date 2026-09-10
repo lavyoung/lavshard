@@ -16,7 +16,7 @@ import java.util.Objects;
  * @param nodes            节点 ID 到物理节点的映射
  * @author <a href="mailto:lavyoung1325@outlook.com">lavyoung</a>
  * @version 0.1.0
- * @data 2026/9/10
+ * @date 2026/9/10
  */
 public record ShardTopology(
         String version,

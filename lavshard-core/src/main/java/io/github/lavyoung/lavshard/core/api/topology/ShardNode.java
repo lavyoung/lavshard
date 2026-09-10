@@ -12,7 +12,7 @@ import java.util.Objects;
  * @param actualTable  物理表名称
  * @author <a href="mailto:lavyoung1325@outlook.com">lavyoung</a>
  * @version 0.1.0
- * @data 2026/9/10
+ * @date 2026/9/10
  */
 public record ShardNode(
         String nodeId,
