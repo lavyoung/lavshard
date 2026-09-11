@@ -233,4 +233,35 @@ class JSqlParserSingleRowInsertRewriterTest {
                 )
         );
     }
+
+    @Test
+    void shouldRewriteSingleColumnInsert() {
+        // Given
+        String sql = """
+                INSERT INTO app.t_order (
+                    user_id
+                )
+                VALUES (?)
+                """;
+
+        // When
+        var result = rewriter.rewrite(
+                sql,
+                LOGICAL_TABLE,
+                ACTUAL_TABLE
+        );
+
+        // Then
+        assertAll(
+                () -> assertEquals(
+                        "INSERT INTO order_db.t_order_00 "
+                                + "(user_id) VALUES (?)",
+                        result.sql()
+                ),
+                () -> assertEquals(
+                        List.of(0),
+                        result.sourceParameterIndexes()
+                )
+        );
+    }
 }

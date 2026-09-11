@@ -4,7 +4,9 @@ import io.github.lavyoung.lavshard.core.api.exception.UnsupportedSqlException;
 import io.github.lavyoung.lavshard.core.api.route.SqlRewriteResult;
 import io.github.lavyoung.lavshard.core.api.topology.QualifiedTableName;
 import net.sf.jsqlparser.JSQLParserException;
+import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.JdbcParameter;
+import net.sf.jsqlparser.expression.Parenthesis;
 import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
 import net.sf.jsqlparser.expression.operators.relational.ParenthesedExpressionList;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
@@ -73,7 +75,7 @@ public final class JSqlParserSingleRowInsertRewriter {
         ExpressionList<Column> columns =
                 requireExplicitColumns(insert);
 
-        ParenthesedExpressionList<?> row =
+        List<? extends Expression> row =
                 requireSingleValuesRow(insert);
 
         validateColumnValueCount(columns, row);
@@ -188,7 +190,13 @@ public final class JSqlParserSingleRowInsertRewriter {
         return columns;
     }
 
-    private static ParenthesedExpressionList<?> requireSingleValuesRow(
+    /**
+     * 获取并规范化唯一的 VALUES 数据行。
+     *
+     * @param insert INSERT AST
+     * @return 唯一数据行中的值表达式
+     */
+    private static List<? extends Expression> requireSingleValuesRow(
             Insert insert
     ) {
         if (!(insert.getSelect() instanceof Values values)) {
@@ -205,6 +213,14 @@ public final class JSqlParserSingleRowInsertRewriter {
             return row;
         }
 
+        if (expressions.size() == 1
+                && expressions.get(0)
+                instanceof Parenthesis parenthesis) {
+            return List.of(
+                    parenthesis.getExpression()
+            );
+        }
+
         throw new UnsupportedSqlException(
                 "v0.1 only supports single-row INSERT"
         );
@@ -212,7 +228,7 @@ public final class JSqlParserSingleRowInsertRewriter {
 
     private static void validateColumnValueCount(
             ExpressionList<Column> columns,
-            ParenthesedExpressionList<?> row
+            List<? extends Expression> row
     ) {
         if (columns.size() != row.size()) {
             throw new UnsupportedSqlException(

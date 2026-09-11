@@ -3,6 +3,7 @@ package io.github.lavyoung.lavshard.core.internal.sql;
 import io.github.lavyoung.lavshard.core.api.exception.UnsupportedSqlException;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.expression.Parenthesis;
 import net.sf.jsqlparser.expression.operators.relational.ExpressionList;
 import net.sf.jsqlparser.expression.operators.relational.ParenthesedExpressionList;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
@@ -56,7 +57,7 @@ public final class JSqlParserSingleRowInsertAnalyzer {
         ExpressionList<Column> columns =
                 requireExplicitColumns(insert);
 
-        ParenthesedExpressionList<?> row =
+        List<? extends Expression> row =
                 requireSingleValuesRow(insert);
 
         validateReferencedTables(statement);
@@ -174,7 +175,17 @@ public final class JSqlParserSingleRowInsertAnalyzer {
         return columns;
     }
 
-    private static ParenthesedExpressionList<?> requireSingleValuesRow(
+    /**
+     * 获取唯一的 VALUES 数据行。
+     *
+     * <p>JSQLParser 4.9 对单列和多列 VALUES 使用不同 AST：
+     * 多列单行直接表示为 ParenthesedExpressionList；单列单行则
+     * 表示为只包含一个 Parenthesis 的普通 ExpressionList。</p>
+     *
+     * @param insert INSERT AST
+     * @return 规范化后的唯一数据行
+     */
+    private static List<? extends Expression> requireSingleValuesRow(
             Insert insert
     ) {
         if (!(insert.getSelect() instanceof Values values)) {
@@ -191,6 +202,14 @@ public final class JSqlParserSingleRowInsertAnalyzer {
             return row;
         }
 
+        if (expressions.size() == 1
+                && expressions.get(0)
+                instanceof Parenthesis parenthesis) {
+            return List.of(
+                    parenthesis.getExpression()
+            );
+        }
+
         throw new UnsupportedSqlException(
                 "v0.1 only supports single-row INSERT"
         );
@@ -198,7 +217,7 @@ public final class JSqlParserSingleRowInsertAnalyzer {
 
     private static void validateColumnValueCount(
             ExpressionList<Column> columns,
-            ParenthesedExpressionList<?> row
+            List<? extends Expression> row
     ) {
         if (columns.size() != row.size()) {
             throw new UnsupportedSqlException(
@@ -220,21 +239,27 @@ public final class JSqlParserSingleRowInsertAnalyzer {
      */
     private static List<ShardPredicate> extractPredicates(
             ExpressionList<Column> columns,
-            ParenthesedExpressionList<?> row
+            List<? extends Expression> row
     ) {
-        List<ShardPredicate> predicates = new ArrayList<>();
+        List<ShardPredicate> predicates =
+                new ArrayList<>();
+
         for (int index = 0; index < columns.size(); index++) {
             Column column = columns.get(index);
             Expression expression = row.get(index);
+
             JSqlParserValueReferenceMapper
                     .from(expression)
-                    .map(valueReference -> new ShardPredicate(
-                            column.getColumnName(),
-                            ShardOperator.EQUAL,
-                            List.of(valueReference)
-                    ))
+                    .map(valueReference ->
+                            new ShardPredicate(
+                                    column.getColumnName(),
+                                    ShardOperator.EQUAL,
+                                    List.of(valueReference)
+                            )
+                    )
                     .ifPresent(predicates::add);
         }
+
         return List.copyOf(predicates);
     }
 

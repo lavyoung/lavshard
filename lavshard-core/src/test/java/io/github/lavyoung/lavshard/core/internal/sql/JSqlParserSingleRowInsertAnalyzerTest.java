@@ -257,6 +257,32 @@ class JSqlParserSingleRowInsertAnalyzerTest {
         );
     }
 
+    @Test
+    void shouldAnalyzeSingleColumnInsert() {
+        // Given
+        String sql = """
+                INSERT INTO t_order (
+                    user_id
+                )
+                VALUES (?)
+                """;
+
+        // When
+        SqlAnalysis analysis =
+                analyzer.analyze(sql);
+
+        // Then
+        assertEquals(
+                List.of(
+                        predicate(
+                                "user_id",
+                                new ValueReference.Parameter(0)
+                        )
+                ),
+                analysis.predicates()
+        );
+    }
+
     private static ShardPredicate predicate(
             String column,
             ValueReference value
