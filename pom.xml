@@ -66,6 +66,7 @@
         <!-- 数据库相关 -->
         <mysql.version>8.0.32</mysql.version>
         <hikaricp.version>5.1.0</hikaricp.version>
+        <mybatis.version>3.5.14</mybatis.version>
 
         <!-- SQL 解析（可选） -->
         <druid.version>1.2.22</druid.version>
@@ -125,6 +126,11 @@
                 <groupId>com.zaxxer</groupId>
                 <artifactId>HikariCP</artifactId>
                 <version>${hikaricp.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mybatis</groupId>
+                <artifactId>mybatis</artifactId>
+                <version>${mybatis.version}</version>
             </dependency>
 
             <!-- ===== MySQL 驱动 ===== -->
