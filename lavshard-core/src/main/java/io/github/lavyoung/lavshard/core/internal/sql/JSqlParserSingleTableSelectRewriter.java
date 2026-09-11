@@ -12,8 +12,6 @@ import net.sf.jsqlparser.statement.select.ParenthesedSelect;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.util.TablesNamesFinder;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.IntStream;
@@ -127,7 +125,7 @@ public final class JSqlParserSingleTableSelectRewriter {
             QualifiedTableName logicalTable
     ) {
         QualifiedTableName parsedName =
-                toQualifiedTableName(parsedTable);
+                JSqlParserTableNameMapper.from(parsedTable);
 
         if (!parsedName.equals(logicalTable)) {
             throw new UnsupportedSqlException(
@@ -135,37 +133,6 @@ public final class JSqlParserSingleTableSelectRewriter {
                             + parsedTable.getFullyQualifiedName()
             );
         }
-    }
-
-    /**
-     * 将 JSQLParser 表节点转换为领域表名。
-     *
-     * @param table JSQLParser 表节点
-     * @return 与解析器解耦的限定表名
-     */
-    private static QualifiedTableName toQualifiedTableName(
-            Table table
-    ) {
-        List<String> reversedParts = table.getNameParts();
-
-        if (reversedParts.isEmpty()) {
-            throw new UnsupportedSqlException(
-                    "SELECT table name must not be empty"
-            );
-        }
-
-        List<String> qualifiers = new ArrayList<>(
-                reversedParts.subList(
-                        1,
-                        reversedParts.size()
-                )
-        );
-        Collections.reverse(qualifiers);
-
-        return new QualifiedTableName(
-                qualifiers,
-                reversedParts.get(0)
-        );
     }
 
     private static Table createActualTable(
@@ -179,19 +146,14 @@ public final class JSqlParserSingleTableSelectRewriter {
         }
 
         Table rewrittenTable = new Table(
-                qualifiedNameParts(actualTable)
+                JSqlParserTableNameMapper.toNameParts(
+                        actualTable
+                )
         );
 
         rewrittenTable.setAlias(sourceTable.getAlias());
 
         return rewrittenTable;
-    }
-
-    private static List<String> qualifiedNameParts(QualifiedTableName name) {
-        List<String> parts =
-                new ArrayList<>(name.qualifiers());
-        parts.add(name.table());
-        return List.copyOf(parts);
     }
 
     private static final class SqlShapeInspector extends TablesNamesFinder {

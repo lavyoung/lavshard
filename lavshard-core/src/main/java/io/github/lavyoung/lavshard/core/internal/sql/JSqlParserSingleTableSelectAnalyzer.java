@@ -1,9 +1,9 @@
 package io.github.lavyoung.lavshard.core.internal.sql;
 
 import io.github.lavyoung.lavshard.core.api.exception.UnsupportedSqlException;
-import io.github.lavyoung.lavshard.core.api.topology.QualifiedTableName;
 import net.sf.jsqlparser.JSQLParserException;
-import net.sf.jsqlparser.expression.*;
+import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.expression.Parenthesis;
 import net.sf.jsqlparser.expression.operators.conditional.AndExpression;
 import net.sf.jsqlparser.expression.operators.conditional.OrExpression;
 import net.sf.jsqlparser.expression.operators.relational.EqualsTo;
@@ -15,7 +15,10 @@ import net.sf.jsqlparser.statement.select.ParenthesedSelect;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.util.TablesNamesFinder;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * 基于 JSQLParser 4.9 的严格单表 SELECT 分析器。
@@ -55,7 +58,9 @@ public final class JSqlParserSingleTableSelectAnalyzer {
         List<ShardPredicate> predicates = extractPredicates(select.getWhere(), sourceTable);
 
         return new SqlAnalysis(SqlType.SELECT,
-                List.of(toQualifiedTableName(sourceTable)),
+                List.of(
+                        JSqlParserTableNameMapper.from(sourceTable)
+                ),
                 predicates);
     }
 
@@ -105,24 +110,6 @@ public final class JSqlParserSingleTableSelectAnalyzer {
         if (referencedTables.size() != 1) {
             throw new UnsupportedSqlException("SELECT must reference exactly one table");
         }
-    }
-
-    private static QualifiedTableName toQualifiedTableName(Table table) {
-        List<String> reversedParts = table.getNameParts();
-
-        if (reversedParts.isEmpty()) {
-            throw new UnsupportedSqlException("SELECT table name must not be empty");
-        }
-
-        List<String> qualifiers = new ArrayList<>(
-                reversedParts.subList(1, reversedParts.size())
-        );
-        Collections.reverse(qualifiers);
-
-        return new QualifiedTableName(
-                qualifiers,
-                reversedParts.get(0)
-        );
     }
 
     /**
@@ -192,7 +179,13 @@ public final class JSqlParserSingleTableSelectAnalyzer {
 
     private static Optional<ShardPredicate> createPredicate(Column column, Expression valueExpression, Table sourceTable) {
         validateColumnQualifier(column, sourceTable);
-        return valueReference(valueExpression).map(value -> new ShardPredicate(column.getColumnName(), ShardOperator.EQUAL, List.of(value)));
+        return JSqlParserValueReferenceMapper
+                .from(valueExpression)
+                .map(value -> new ShardPredicate(
+                        column.getColumnName(),
+                        ShardOperator.EQUAL,
+                        List.of(value)
+                ));
     }
 
     private static void validateColumnQualifier(Column column, Table sourceTable) {
@@ -209,70 +202,6 @@ public final class JSqlParserSingleTableSelectAnalyzer {
         if (!matchesAlias && !actualQualifier.equals(sourceName) && !actualQualifier.equals(sourceQualifiedName)) {
             throw new UnsupportedSqlException("column qualifier does not match SELECT table: " + actualQualifier);
         }
-    }
-
-    private static Optional<ValueReference> valueReference(Expression expression) {
-        if (expression instanceof Parenthesis parenthesis) {
-            return valueReference(parenthesis.getExpression());
-        }
-
-        if (expression instanceof JdbcParameter parameter) {
-            return Optional.of(parameterReference(parameter));
-        }
-
-        if (expression instanceof StringValue stringValue) {
-            return Optional.of(new ValueReference.Literal(stringValue.getValue()));
-        }
-
-        if (expression instanceof LongValue longValue) {
-            return Optional.of(new ValueReference.Literal(longValue.getValue()));
-        }
-
-        if (expression instanceof DoubleValue doubleValue) {
-            return Optional.of(new ValueReference.Literal(doubleValue.getValue()));
-        }
-
-        if (expression instanceof SignedExpression signed) {
-            return signedLiteral(signed);
-        }
-
-        return Optional.empty();
-    }
-
-    private static Optional<ValueReference> signedLiteral(SignedExpression signed) {
-        Optional<ValueReference> unsigned = valueReference(signed.getExpression());
-
-        if (unsigned.isEmpty() || !(unsigned.get() instanceof ValueReference.Literal literal) || !(literal.value() instanceof Number number)) {
-            return Optional.empty();
-        }
-
-        if (signed.getSign() == '+') {
-            return unsigned;
-        }
-
-        if (signed.getSign() == '-' && number instanceof Long longValue) {
-            try {
-                return Optional.of(new ValueReference.Literal(Math.negateExact(longValue)));
-            } catch (ArithmeticException exception) {
-                throw new UnsupportedSqlException("integer literal is out of range", exception);
-            }
-        }
-
-        if (signed.getSign() == '-' && number instanceof Double doubleValue) {
-            return Optional.of(new ValueReference.Literal(-doubleValue));
-        }
-
-        return Optional.empty();
-    }
-
-    private static ValueReference.Parameter parameterReference(JdbcParameter parameter) {
-        Integer oneBasedIndex = parameter.getIndex();
-
-        if (oneBasedIndex == null || oneBasedIndex <= 0) {
-            throw new UnsupportedSqlException("JDBC parameter index is unavailable");
-        }
-
-        return new ValueReference.Parameter(oneBasedIndex - 1);
     }
 
     private static final class SqlShapeInspector extends TablesNamesFinder {
