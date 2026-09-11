@@ -16,7 +16,7 @@
     <packaging>jar</packaging>
 
     <name>${project.artifactId}-${revision}</name>
-    <description>分片算法、SQL 解析、路由计算、动态数据源抽象、上下文、SPI</description>
+    <description>分片算法、SQL 解析、路由计算、分片规则与拓扑模型</description>
 
     <dependencies>
         <!-- ==================== 必选依赖 ==================== -->
@@ -25,7 +25,7 @@
             <groupId>com.github.jsqlparser</groupId>
             <artifactId>jsqlparser</artifactId>
         </dependency>
-        
+
     </dependencies>
 
     <build>

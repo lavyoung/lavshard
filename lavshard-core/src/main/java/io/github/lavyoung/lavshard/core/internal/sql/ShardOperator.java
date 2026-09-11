@@ -1,22 +1,16 @@
 package io.github.lavyoung.lavshard.core.internal.sql;
 
 /**
- *
- * 当前版本能够进入严格分析流程的 SQL 类型。
+ * 可用于分片路由的条件操作符。
  *
  * @author <a href="mailto:lavyoung1325@outlook.com">lavyoung</a>
  * @version 0.1.0
- * @date  2026/9/10
+ * @date 2026/9/11
  */
-public enum SqlType {
+public enum ShardOperator {
 
-    SELECT,
-
-    INSERT,
-
-    UPDATE,
-
-    DELETE,
+    EQUAL,
 
     ;
+
 }
