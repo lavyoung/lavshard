@@ -2,11 +2,11 @@ package io.github.lavyoung.lavshard.core.internal.route;
 
 import io.github.lavyoung.lavshard.core.api.algorithm.AlgorithmConfig;
 import io.github.lavyoung.lavshard.core.api.algorithm.ShardBucket;
-import io.github.lavyoung.lavshard.core.api.algorithm.ShardValue;
+import io.github.lavyoung.lavshard.core.api.exception.MissingShardKeyException;
+import io.github.lavyoung.lavshard.core.api.exception.ShardRuleNotFoundException;
 import io.github.lavyoung.lavshard.core.api.exception.UnsupportedSqlException;
 import io.github.lavyoung.lavshard.core.api.route.RouteMode;
 import io.github.lavyoung.lavshard.core.api.route.RoutePlan;
-import io.github.lavyoung.lavshard.core.api.route.RouteRequest;
 import io.github.lavyoung.lavshard.core.api.rule.RuleSnapshot;
 import io.github.lavyoung.lavshard.core.api.rule.TableRule;
 import io.github.lavyoung.lavshard.core.api.topology.QualifiedTableName;
@@ -43,28 +43,26 @@ class SingleSelectRoutePlannerTest {
     @Test
     void shouldCreateExecutablePlanFromLogicalSelect() {
         // Given
-        RuleSnapshot snapshot = snapshot();
-        RouteRequest request = new RouteRequest(
-                LOGICAL_TABLE,
-                ShardValue.of("user-123")
-        );
-
         String sql = """
-                select *
-                from t_order
-                where user_id = ?
-                  and status = ?
+                SELECT *
+                FROM t_order
+                WHERE status = ?
+                  AND user_id = ?
                 """;
 
         // When
         RoutePlan plan = planner.plan(
-                snapshot,
-                request,
-                sql
+                snapshot(),
+                sql,
+                List.of(
+                        "PAID",
+                        "user-123"
+                )
         );
 
         // Then
-        assertThat(plan.mode()).isEqualTo(RouteMode.SINGLE);
+        assertThat(plan.mode())
+                .isEqualTo(RouteMode.SINGLE);
         assertThat(plan.ruleVersion())
                 .isEqualTo("order-rule-v1");
         assertThat(plan.topologyVersion())
@@ -84,7 +82,7 @@ class SingleSelectRoutePlannerTest {
         assertThat(unit.sql().sql())
                 .isEqualTo(
                         "SELECT * FROM t_order_00 "
-                                + "WHERE user_id = ? AND status = ?"
+                                + "WHERE status = ? AND user_id = ?"
                 );
         assertThat(unit.sql().sourceParameterIndexes())
                 .containsExactly(0, 1);
@@ -94,18 +92,18 @@ class SingleSelectRoutePlannerTest {
     void shouldPreserveAliasOrderByAndLimit() {
         // Given
         String sql = """
-                select o.id
-                from t_order o
-                where o.user_id = ?
-                order by o.id desc
-                limit 10
+                SELECT o.id
+                FROM t_order o
+                WHERE o.user_id = ?
+                ORDER BY o.id DESC
+                LIMIT 10
                 """;
 
         // When
         RoutePlan plan = planner.plan(
                 snapshot(),
-                request(),
-                sql
+                sql,
+                List.of("user-123")
         );
 
         // Then
@@ -116,37 +114,113 @@ class SingleSelectRoutePlannerTest {
     }
 
     @Test
-    void shouldRejectJoin() {
+    void shouldCreatePlanFromShardLiteral() {
+        // Given
         String sql = """
-                select o.*
-                from t_order o
-                join t_user u on u.id = o.user_id
-                where o.user_id = ?
+                SELECT *
+                FROM t_order
+                WHERE user_id = 'user-123'
                 """;
 
-        assertThatThrownBy(() -> planner.plan(
+        // When
+        RoutePlan plan = planner.plan(
                 snapshot(),
-                request(),
-                sql
-        ))
-                .isInstanceOf(UnsupportedSqlException.class)
-                .hasMessage("JOIN is not supported in v0.1");
+                sql,
+                List.of()
+        );
+
+        // Then
+        var unit = plan.units().get(0);
+
+        assertThat(unit.target().bucket())
+                .isEqualTo(new ShardBucket(46));
+        assertThat(unit.target().node().actualTable())
+                .isEqualTo(
+                        new QualifiedTableName("t_order_00")
+                );
+        assertThat(unit.sql().sql())
+                .contains("FROM t_order_00")
+                .contains("user_id = 'user-123'");
+        assertThat(unit.sql().sourceParameterIndexes())
+                .isEmpty();
+    }
+
+    @Test
+    void shouldRejectSelectWithoutShardKey() {
+        // Given
+        String sql = """
+                SELECT *
+                FROM t_order
+                WHERE status = ?
+                """;
+
+        // Then
+        assertThatThrownBy(() ->
+                planner.plan(
+                        snapshot(),
+                        sql,
+                        List.of("PAID")
+                )
+        )
+                .isInstanceOf(
+                        MissingShardKeyException.class
+                )
+                .hasMessageContaining("user_id");
+    }
+
+    @Test
+    void shouldRejectJoin() {
+        // Given
+        String sql = """
+                SELECT o.*
+                FROM t_order o
+                JOIN t_user u ON u.id = o.user_id
+                WHERE o.user_id = ?
+                """;
+
+        // Then
+        assertThatThrownBy(() ->
+                planner.plan(
+                        snapshot(),
+                        sql,
+                        List.of("user-123")
+                )
+        )
+                .isInstanceOf(
+                        UnsupportedSqlException.class
+                )
+                .hasMessage(
+                        "JOIN is not supported in v0.1"
+                );
     }
 
     @Test
     void shouldRejectUnion() {
+        // Given
         String sql = """
-                select * from t_order where user_id = ?
-                union all
-                select * from t_order where user_id = ?
+                SELECT *
+                FROM t_order
+                WHERE user_id = ?
+                UNION ALL
+                SELECT *
+                FROM t_order
+                WHERE user_id = ?
                 """;
 
-        assertThatThrownBy(() -> planner.plan(
-                snapshot(),
-                request(),
-                sql
-        ))
-                .isInstanceOf(UnsupportedSqlException.class)
+        // Then
+        assertThatThrownBy(() ->
+                planner.plan(
+                        snapshot(),
+                        sql,
+                        List.of(
+                                "user-123",
+                                "user-123"
+                        )
+                )
+        )
+                .isInstanceOf(
+                        UnsupportedSqlException.class
+                )
                 .hasMessage(
                         "v0.1 only supports a plain single-table SELECT"
                 );
@@ -154,64 +228,76 @@ class SingleSelectRoutePlannerTest {
 
     @Test
     void shouldRejectSubquery() {
+        // Given
         String sql = """
-                select *
-                from t_order
-                where user_id = ?
-                  and id in (select order_id from t_order_item)
+                SELECT *
+                FROM t_order
+                WHERE user_id = ?
+                  AND id IN (
+                      SELECT order_id
+                      FROM t_order_item
+                  )
                 """;
 
-        assertThatThrownBy(() -> planner.plan(
-                snapshot(),
-                request(),
-                sql
-        ))
-                .isInstanceOf(UnsupportedSqlException.class)
+        // Then
+        assertThatThrownBy(() ->
+                planner.plan(
+                        snapshot(),
+                        sql,
+                        List.of("user-123")
+                )
+        )
+                .isInstanceOf(
+                        UnsupportedSqlException.class
+                )
                 .hasMessage(
                         "subqueries are not supported in v0.1"
                 );
     }
 
     @Test
-    void shouldRejectMismatchedLogicalTable() {
+    void shouldRejectTableWithoutShardRule() {
+        // Given
         String sql = """
-                select *
-                from t_user
-                where user_id = ?
+                SELECT *
+                FROM t_user
+                WHERE user_id = ?
                 """;
 
-        assertThatThrownBy(() -> planner.plan(
-                snapshot(),
-                request(),
-                sql
-        ))
-                .isInstanceOf(UnsupportedSqlException.class)
-                .hasMessageContaining(
-                        "SQL table does not match route request"
-                );
+        // Then
+        assertThatThrownBy(() ->
+                planner.plan(
+                        snapshot(),
+                        sql,
+                        List.of("user-123")
+                )
+        )
+                .isInstanceOf(
+                        ShardRuleNotFoundException.class
+                )
+                .hasMessageContaining("t_user");
     }
 
     @Test
     void shouldRejectNonSelectStatement() {
+        // Given
         String sql =
-                "delete from t_order where user_id = ?";
+                "DELETE FROM t_order WHERE user_id = ?";
 
-        assertThatThrownBy(() -> planner.plan(
-                snapshot(),
-                request(),
-                sql
-        ))
-                .isInstanceOf(UnsupportedSqlException.class)
+        // Then
+        assertThatThrownBy(() ->
+                planner.plan(
+                        snapshot(),
+                        sql,
+                        List.of("user-123")
+                )
+        )
+                .isInstanceOf(
+                        UnsupportedSqlException.class
+                )
                 .hasMessage(
                         "v0.1 only supports a plain single-table SELECT"
                 );
-    }
-
-    private static RouteRequest request() {
-        return new RouteRequest(
-                LOGICAL_TABLE,
-                ShardValue.of("user-123")
-        );
     }
 
     private static RuleSnapshot snapshot() {
@@ -225,7 +311,10 @@ class SingleSelectRoutePlannerTest {
                 new HashMap<>();
 
         for (int bucket = 0; bucket < 1024; bucket++) {
-            placements.put(bucket, node.nodeId());
+            placements.put(
+                    bucket,
+                    node.nodeId()
+            );
         }
 
         ShardTopology topology = new ShardTopology(
@@ -247,6 +336,8 @@ class SingleSelectRoutePlannerTest {
                 topology
         );
 
-        return new RuleSnapshot(List.of(rule));
+        return new RuleSnapshot(
+                List.of(rule)
+        );
     }
 }
