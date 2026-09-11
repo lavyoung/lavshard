@@ -52,6 +52,14 @@ class SqlAnalysisModelTest {
                 () -> assertThrows(
                         UnsupportedOperationException.class,
                         () -> analysis.predicates().clear()
+                ),
+                () -> assertEquals(
+                        List.of(),
+                        analysis.updatedColumns()
+                ),
+                () -> assertThrows(
+                        UnsupportedOperationException.class,
+                        () -> analysis.updatedColumns().add("status")
                 )
         );
     }
@@ -132,6 +140,43 @@ class SqlAnalysisModelTest {
                 () -> assertEquals(
                         1,
                         new ValueReference.Parameter(1).sourceIndex()
+                )
+        );
+    }
+
+    @Test
+    void shouldCreateUpdateAnalysisWithImmutableUpdatedColumns() {
+        // Given
+        var sourceColumns =
+                new ArrayList<>(
+                        List.of(
+                                "status",
+                                "updated_at"
+                        )
+                );
+
+        // When
+        var analysis = new SqlAnalysis(
+                SqlType.UPDATE,
+                List.of(
+                        new QualifiedTableName("t_order")
+                ),
+                List.of(),
+                sourceColumns
+        );
+
+        sourceColumns.clear();
+
+        // Then
+        assertAll(
+                () -> assertEquals(
+                        List.of("status", "updated_at"),
+                        analysis.updatedColumns()
+                ),
+                () -> assertThrows(
+                        UnsupportedOperationException.class,
+                        () -> analysis.updatedColumns()
+                                .add("amount")
                 )
         );
     }
