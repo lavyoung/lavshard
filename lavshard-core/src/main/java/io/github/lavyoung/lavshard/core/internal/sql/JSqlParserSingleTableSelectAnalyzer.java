@@ -41,7 +41,7 @@ public final class JSqlParserSingleTableSelectAnalyzer {
      * @throws UnsupportedSqlException SQL 无法解析或不是受支持的单表 SELECT
      */
     public SqlAnalysis analyze(String sql) {
-        if (sql == null || sql.isEmpty()) {
+        if (sql == null || sql.isBlank()) {
             throw new UnsupportedSqlException("sql must not be blank");
         }
 
@@ -240,7 +240,7 @@ public final class JSqlParserSingleTableSelectAnalyzer {
     }
 
     private static Optional<ValueReference> signedLiteral(SignedExpression signed) {
-        Optional<ValueReference> unsigned = valueReference(signed);
+        Optional<ValueReference> unsigned = valueReference(signed.getExpression());
 
         if (unsigned.isEmpty() || !(unsigned.get() instanceof ValueReference.Literal literal) || !(literal.value() instanceof Number number)) {
             return Optional.empty();

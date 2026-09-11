@@ -134,9 +134,12 @@ class JSqlParserSingleTableSelectAnalyzerTest {
     @Test
     void shouldRejectUnsupportedSelectShapes() {
         assertAll(
-                () -> assertThrows(
-                        UnsupportedSqlException.class,
-                        () -> analyzer.analyze(" ")
+                () -> assertEquals(
+                        "sql must not be blank",
+                        assertThrows(
+                                UnsupportedSqlException.class,
+                                () -> analyzer.analyze(" ")
+                        ).getMessage()
                 ),
                 () -> assertThrows(
                         UnsupportedSqlException.class,
@@ -170,6 +173,30 @@ class JSqlParserSingleTableSelectAnalyzerTest {
                                 )
                                 """)
                 )
+        );
+    }
+
+    @Test
+    void shouldAnalyzeNegativeIntegerLiteral() {
+        // Given
+        String sql = """
+                SELECT *
+                FROM t_order
+                WHERE user_id = -1001
+                """;
+
+        // When
+        SqlAnalysis analysis = analyzer.analyze(sql);
+
+        // Then
+        assertEquals(
+                List.of(
+                        predicate(
+                                "user_id",
+                                new ValueReference.Literal(-1001L)
+                        )
+                ),
+                analysis.predicates()
         );
     }
 
