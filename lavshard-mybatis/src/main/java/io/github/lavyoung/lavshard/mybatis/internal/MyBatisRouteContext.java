@@ -6,6 +6,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * 当前线程的 MyBatis 路由决策上下文。
@@ -16,13 +17,38 @@ import java.util.Optional;
  * <p>上下文使用栈结构支持嵌套 Mapper 调用。最外层作用域
  * 关闭后必须清理 ThreadLocal，避免线程池复用造成串库。</p>
  *
+ * <p>决策守卫在路由决策进入 ThreadLocal 前执行。守卫拒绝
+ * 当前决策时，不得创建或污染线程上下文。</p>
+ *
  * @author <a href="mailto:lavyoung1325@outlook.com">lavyoung</a>
  * @version 0.1.0
  * @date 2026/9/11
  */
 public final class MyBatisRouteContext {
 
+    private static final Consumer<SqlRouteDecision> NO_OP_DECISION_GUARD = ignored -> {
+    };
+
     private final ThreadLocal<Deque<SqlRouteDecision>> decisions = new ThreadLocal<>();
+
+    private final Consumer<SqlRouteDecision> decisionGuard;
+
+    /**
+     * 创建不包含事务守卫的路由上下文。
+     */
+    public MyBatisRouteContext() {
+        this(NO_OP_DECISION_GUARD);
+    }
+
+    /**
+     * 创建带决策守卫的路由上下文。
+     *
+     * @param decisionGuard 决策进入执行作用域前调用的守卫
+     * @throws NullPointerException 守卫为空时抛出
+     */
+    public MyBatisRouteContext(Consumer<SqlRouteDecision> decisionGuard) {
+        this.decisionGuard = Objects.requireNonNull(decisionGuard, "decisionGuard must not be null");
+    }
 
     /**
      * 打开一个路由决策作用域。
@@ -32,10 +58,9 @@ public final class MyBatisRouteContext {
      * @throws NullPointerException decision 为空时抛出
      */
     public Scope open(SqlRouteDecision decision) {
-        Objects.requireNonNull(
-                decision,
-                "decision must not be null"
-        );
+        Objects.requireNonNull(decision, "decision must not be null");
+
+        decisionGuard.accept(decision);
 
         Deque<SqlRouteDecision> stack = decisions.get();
 
@@ -58,8 +83,7 @@ public final class MyBatisRouteContext {
      * @return 当前决策；不在执行作用域时返回空
      */
     public Optional<SqlRouteDecision> currentDecision() {
-        Deque<SqlRouteDecision> stack =
-                decisions.get();
+        Deque<SqlRouteDecision> stack = decisions.get();
 
         if (stack == null || stack.isEmpty()) {
             return Optional.empty();
@@ -83,10 +107,7 @@ public final class MyBatisRouteContext {
         private final SqlRouteDecision decision;
         private boolean closed;
 
-        private RouteScope(
-                Deque<SqlRouteDecision> stack,
-                SqlRouteDecision decision
-        ) {
+        private RouteScope(Deque<SqlRouteDecision> stack, SqlRouteDecision decision) {
             this.stack = stack;
             this.decision = decision;
         }
@@ -98,10 +119,7 @@ public final class MyBatisRouteContext {
             }
 
             if (stack.peek() != decision) {
-                throw new IllegalStateException(
-                        "route scopes must be closed "
-                                + "in reverse order"
-                );
+                throw new IllegalStateException("route scopes must be closed in reverse order");
             }
 
             stack.pop();

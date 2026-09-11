@@ -1,8 +1,12 @@
 package io.github.lavyoung.lavshard.mybatis.internal;
 
+import io.github.lavyoung.lavshard.core.api.exception.CrossShardTransactionException;
 import io.github.lavyoung.lavshard.core.api.route.PassThroughDecision;
 import io.github.lavyoung.lavshard.core.api.route.SqlRouteDecision;
 import org.junit.jupiter.api.Test;
+
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -64,6 +68,49 @@ class MyBatisRouteContextTest {
         assertThatThrownBy(() -> context.open(null))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage("decision must not be null");
+    }
+
+    @Test
+    void shouldValidateEveryDecisionBeforePublishingIt() {
+        AtomicInteger validations = new AtomicInteger();
+        AtomicReference<MyBatisRouteContext> contextReference =
+                new AtomicReference<>();
+        MyBatisRouteContext guardedContext =
+                new MyBatisRouteContext(decision -> {
+                    assertThat(contextReference.get().currentDecision())
+                            .isEmpty();
+                    validations.incrementAndGet();
+                });
+        contextReference.set(guardedContext);
+
+        try (MyBatisRouteContext.Scope ignored =
+                     guardedContext.open(decision("ds0"))) {
+            assertThat(guardedContext.currentDecision()).isPresent();
+        }
+        try (MyBatisRouteContext.Scope ignored =
+                     guardedContext.open(decision("ds1"))) {
+            assertThat(guardedContext.currentDecision()).isPresent();
+        }
+
+        assertThat(validations).hasValue(2);
+        assertThat(guardedContext.currentDecision()).isEmpty();
+    }
+
+    @Test
+    void shouldNotPublishDecisionWhenTransactionGuardRejectsIt() {
+        CrossShardTransactionException rejection =
+                new CrossShardTransactionException(
+                        "cross data source transaction"
+                );
+        MyBatisRouteContext guardedContext =
+                new MyBatisRouteContext(decision -> {
+                    throw rejection;
+                });
+
+        assertThatThrownBy(() ->
+                guardedContext.open(decision("ds1")))
+                .isSameAs(rejection);
+        assertThat(guardedContext.currentDecision()).isEmpty();
     }
 
     private static SqlRouteDecision decision(

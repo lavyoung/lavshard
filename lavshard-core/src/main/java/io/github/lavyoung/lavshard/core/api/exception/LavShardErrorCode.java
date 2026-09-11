@@ -27,6 +27,8 @@ public enum LavShardErrorCode {
     SHARD_RULE_NOT_FOUND("LAVSHARD-CORE-4001"),
     ROUTE_NOT_FOUND("LAVSHARD-CORE-4002"),
 
+    // 本地事务
+    TRANSACTION_ROUTE_CONFLICT("LAVSHARD-CORE-5001"),
     ;
 
     private final String code;
