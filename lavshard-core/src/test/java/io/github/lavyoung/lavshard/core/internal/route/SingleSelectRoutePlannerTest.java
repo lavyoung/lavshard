@@ -3,6 +3,7 @@ package io.github.lavyoung.lavshard.core.internal.route;
 import io.github.lavyoung.lavshard.core.api.algorithm.AlgorithmConfig;
 import io.github.lavyoung.lavshard.core.api.algorithm.ShardBucket;
 import io.github.lavyoung.lavshard.core.api.exception.MissingShardKeyException;
+import io.github.lavyoung.lavshard.core.api.exception.ParameterBindingException;
 import io.github.lavyoung.lavshard.core.api.exception.ShardRuleNotFoundException;
 import io.github.lavyoung.lavshard.core.api.exception.UnsupportedSqlException;
 import io.github.lavyoung.lavshard.core.api.route.RouteMode;
@@ -15,10 +16,14 @@ import io.github.lavyoung.lavshard.core.api.topology.ShardTopology;
 import io.github.lavyoung.lavshard.core.internal.algorithm.ShardAlgorithmRegistry;
 import io.github.lavyoung.lavshard.core.internal.sql.JSqlParserSingleTableSelectRewriter;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -298,6 +303,195 @@ class SingleSelectRoutePlannerTest {
                 .hasMessage(
                         "v0.1 only supports a plain single-table SELECT"
                 );
+    }
+
+    @ParameterizedTest(name = "[{index}] {0}")
+    @MethodSource("unsafeShardPredicates")
+    void shouldRejectUnsafeShardPredicate(
+            String sql,
+            List<?> parameters
+    ) {
+        // Then
+        assertThatThrownBy(() ->
+                planner.plan(
+                        snapshot(),
+                        sql,
+                        parameters
+                )
+        )
+                .isInstanceOf(
+                        MissingShardKeyException.class
+                )
+                .hasMessageContaining("user_id");
+    }
+
+    private static Stream<Arguments> unsafeShardPredicates() {
+        return Stream.of(
+                Arguments.of(
+                        """
+                                SELECT *
+                                FROM t_order
+                                WHERE user_id = ? OR status = ?
+                                """,
+                        List.of("user-123", "PAID")
+                ),
+                Arguments.of(
+                        """
+                                SELECT *
+                                FROM t_order
+                                WHERE user_id IN (?, ?)
+                                """,
+                        List.of("user-123", "user-456")
+                ),
+                Arguments.of(
+                        """
+                                SELECT *
+                                FROM t_order
+                                WHERE user_id BETWEEN ? AND ?
+                                """,
+                        List.of("user-1000", "user-2000")
+                ),
+                Arguments.of(
+                        """
+                                SELECT *
+                                FROM t_order
+                                WHERE user_id > ?
+                                """,
+                        List.of("user-123")
+                ),
+                Arguments.of(
+                        """
+                                SELECT *
+                                FROM t_order
+                                WHERE user_id IS NULL
+                                """,
+                        List.of()
+                ),
+                Arguments.of(
+                        """
+                                SELECT *
+                                FROM t_order
+                                WHERE user_id = UPPER(?)
+                                """,
+                        List.of("user-123")
+                )
+        );
+    }
+
+    @Test
+    void shouldRejectMultipleShardKeyPredicates() {
+        // Given
+        String sql = """
+                SELECT *
+                FROM t_order
+                WHERE user_id = ?
+                  AND user_id = ?
+                """;
+
+        // Then
+        assertThatThrownBy(() ->
+                planner.plan(
+                        snapshot(),
+                        sql,
+                        List.of(
+                                "user-123",
+                                "user-123"
+                        )
+                )
+        )
+                .isInstanceOf(
+                        UnsupportedSqlException.class
+                )
+                .hasMessageContaining(
+                        "multiple equality predicates"
+                );
+    }
+
+    @Test
+    void shouldRejectMissingJdbcParameter() {
+        // Given
+        String sql = """
+                SELECT ? AS marker
+                FROM t_order
+                WHERE user_id = ?
+                """;
+
+        // Only the first parameter is available.
+        List<?> parameters = List.of("marker");
+
+        // Then
+        assertThatThrownBy(() ->
+                planner.plan(
+                        snapshot(),
+                        sql,
+                        parameters
+                )
+        )
+                .isInstanceOf(
+                        ParameterBindingException.class
+                )
+                .hasMessageContaining(
+                        "source parameter index out of range"
+                );
+    }
+
+    @Test
+    void shouldRejectUnsupportedShardLiteralType() {
+        // Given
+        String sql = """
+                SELECT *
+                FROM t_order
+                WHERE user_id = 1.5
+                """;
+
+        // Then
+        assertThatThrownBy(() ->
+                planner.plan(
+                        snapshot(),
+                        sql,
+                        List.of()
+                )
+        )
+                .isInstanceOf(
+                        ParameterBindingException.class
+                )
+                .hasMessage(
+                        "unsupported shard value type: java.lang.Double"
+                );
+    }
+
+    @Test
+    void shouldAllowOrOutsideRequiredShardPredicate() {
+        // Given
+        String sql = """
+                SELECT *
+                FROM t_order
+                WHERE (status = ? OR status = ?)
+                  AND user_id = ?
+                """;
+
+        // When
+        RoutePlan plan = planner.plan(
+                snapshot(),
+                sql,
+                List.of(
+                        "PAID",
+                        "CREATED",
+                        "user-123"
+                )
+        );
+
+        // Then
+        var unit = plan.units().get(0);
+
+        assertThat(unit.target().bucket())
+                .isEqualTo(new ShardBucket(46));
+        assertThat(unit.target().node().actualTable())
+                .isEqualTo(
+                        new QualifiedTableName("t_order_00")
+                );
+        assertThat(unit.sql().sourceParameterIndexes())
+                .containsExactly(0, 1, 2);
     }
 
     private static RuleSnapshot snapshot() {
