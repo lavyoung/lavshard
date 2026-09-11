@@ -11,13 +11,10 @@ package io.github.lavyoung.lavshard.core.api.exception;
 public class UnsupportedSqlException extends LavShardException {
 
     public UnsupportedSqlException(String message) {
-        super(message);
+        super(LavShardErrorCode.SQL_UNSUPPORTED, message);
     }
 
-    public UnsupportedSqlException(
-            String message,
-            Throwable cause
-    ) {
-        super(message, cause);
+    public UnsupportedSqlException(String message, Throwable cause) {
+        super(LavShardErrorCode.SQL_UNSUPPORTED, message, cause);
     }
 }

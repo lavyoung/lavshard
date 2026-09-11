@@ -7,8 +7,13 @@ package io.github.lavyoung.lavshard.core.api.exception;
  * @version 0.1.0
  * @date 2026/9/10
  */
-public class ConfigurationException extends LavShardException
-{
-	public ConfigurationException(String message)
-	{}
+public class ConfigurationException extends LavShardException {
+
+    public ConfigurationException(String message) {
+        super(LavShardErrorCode.CONFIGURATION_INVALID, message);
+    }
+
+    public ConfigurationException(String message, Throwable cause) {
+        super(LavShardErrorCode.CONFIGURATION_INVALID, message, cause);
+    }
 }

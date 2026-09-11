@@ -1,7 +1,7 @@
 package io.github.lavyoung.lavshard.core.api.exception;
 
 /**
- * 算法执行失败
+ * 分片算法无法完成桶计算时抛出。
  *
  * @author <a href="mailto:lavyoung1325@outlook.com">lavyoung</a>
  * @version 0.1.0
@@ -9,14 +9,12 @@ package io.github.lavyoung.lavshard.core.api.exception;
  */
 public class ShardAlgorithmException extends LavShardException {
 
+
     public ShardAlgorithmException(String message) {
-        super(message);
+        super(LavShardErrorCode.SHARD_ALGORITHM_FAILED, message);
     }
 
-    public ShardAlgorithmException(
-            String message,
-            Throwable cause
-    ) {
-        super(message, cause);
+    public ShardAlgorithmException(String message, Throwable cause) {
+        super(LavShardErrorCode.SHARD_ALGORITHM_FAILED, message, cause);
     }
 }
