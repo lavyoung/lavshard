@@ -13,6 +13,7 @@ import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.util.TablesNamesFinder;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.IntStream;
@@ -125,13 +126,46 @@ public final class JSqlParserSingleTableSelectRewriter {
             Table parsedTable,
             QualifiedTableName logicalTable
     ) {
-        List<String> expectedParts = qualifiedNameParts(logicalTable);
-        if (!parsedTable.getNameParts().equals(expectedParts)) {
+        QualifiedTableName parsedName =
+                toQualifiedTableName(parsedTable);
+
+        if (!parsedName.equals(logicalTable)) {
             throw new UnsupportedSqlException(
                     "SQL table does not match route request: "
                             + parsedTable.getFullyQualifiedName()
             );
         }
+    }
+
+    /**
+     * 将 JSQLParser 表节点转换为领域表名。
+     *
+     * @param table JSQLParser 表节点
+     * @return 与解析器解耦的限定表名
+     */
+    private static QualifiedTableName toQualifiedTableName(
+            Table table
+    ) {
+        List<String> reversedParts = table.getNameParts();
+
+        if (reversedParts.isEmpty()) {
+            throw new UnsupportedSqlException(
+                    "SELECT table name must not be empty"
+            );
+        }
+
+        List<String> qualifiers = new ArrayList<>(
+                reversedParts.subList(
+                        1,
+                        reversedParts.size()
+                )
+        );
+        Collections.reverse(qualifiers);
+
+        return new QualifiedTableName(
+                qualifiers,
+                reversedParts.get(0)
+        );
     }
 
     private static Table createActualTable(
