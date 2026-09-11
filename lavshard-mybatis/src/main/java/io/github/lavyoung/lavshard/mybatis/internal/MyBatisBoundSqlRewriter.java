@@ -38,13 +38,8 @@ public final class MyBatisBoundSqlRewriter {
      * @param configuration MyBatis 配置
      * @throws NullPointerException configuration 为空时抛出
      */
-    public MyBatisBoundSqlRewriter(
-            Configuration configuration
-    ) {
-        this.configuration = Objects.requireNonNull(
-                configuration,
-                "configuration must not be null"
-        );
+    public MyBatisBoundSqlRewriter(Configuration configuration) {
+        this.configuration = Objects.requireNonNull(configuration, "configuration must not be null");
     }
 
     /**
@@ -56,46 +51,25 @@ public final class MyBatisBoundSqlRewriter {
      * @throws NullPointerException     参数为空时抛出
      * @throws IllegalArgumentException 投影下标越界时抛出
      */
-    public BoundSql rewrite(
-            BoundSql boundSql,
-            SqlRewriteResult rewrite
-    ) {
+    public BoundSql rewrite(BoundSql boundSql, SqlRewriteResult rewrite) {
         Objects.requireNonNull(boundSql, "boundSql must not be null");
         Objects.requireNonNull(rewrite, "rewrite must not be null");
 
-        List<ParameterMapping> projectedMappings = projectMappings(
-                boundSql.getParameterMappings(),
-                rewrite.sourceParameterIndexes());
+        List<ParameterMapping> projectedMappings = projectMappings(boundSql.getParameterMappings(), rewrite.sourceParameterIndexes());
 
-        BoundSql physicalBoundSql = new BoundSql(
-                configuration,
-                rewrite.sql(),
-                projectedMappings,
-                boundSql.getParameterObject()
-        );
+        BoundSql physicalBoundSql = new BoundSql(configuration, rewrite.sql(), projectedMappings, boundSql.getParameterObject());
 
-        copyReferencedAdditionalParameters(
-                boundSql,
-                physicalBoundSql,
-                projectedMappings
-        );
+        copyReferencedAdditionalParameters(boundSql, physicalBoundSql, projectedMappings);
 
         return physicalBoundSql;
     }
 
-    private static List<ParameterMapping> projectMappings(
-            List<ParameterMapping> sourceMappings,
-            List<Integer> sourceIndexes
-    ) {
-        List<ParameterMapping> projectedMappings =
-                new ArrayList<>(sourceIndexes.size());
+    private static List<ParameterMapping> projectMappings(List<ParameterMapping> sourceMappings, List<Integer> sourceIndexes) {
+        List<ParameterMapping> projectedMappings = new ArrayList<>(sourceIndexes.size());
 
         for (Integer sourceIndex : sourceIndexes) {
             if (sourceIndex >= sourceMappings.size()) {
-                throw new IllegalArgumentException(
-                        "source parameter index out of bounds: "
-                                + sourceIndex
-                );
+                throw new IllegalArgumentException("source parameter index out of bounds: " + sourceIndex);
             }
 
             projectedMappings.add(sourceMappings.get(sourceIndex));
@@ -104,11 +78,7 @@ public final class MyBatisBoundSqlRewriter {
         return projectedMappings;
     }
 
-    private static void copyReferencedAdditionalParameters(
-            BoundSql source,
-            BoundSql target,
-            List<ParameterMapping> projectedMappings
-    ) {
+    private static void copyReferencedAdditionalParameters(BoundSql source, BoundSql target, List<ParameterMapping> projectedMappings) {
         for (ParameterMapping mapping : projectedMappings) {
             String property = mapping.getProperty();
 
@@ -120,10 +90,7 @@ public final class MyBatisBoundSqlRewriter {
 
             Object rootValue = source.getAdditionalParameter(rootProperty);
 
-            target.setAdditionalParameter(
-                    rootProperty,
-                    rootValue
-            );
+            target.setAdditionalParameter(rootProperty, rootValue);
         }
     }
 }

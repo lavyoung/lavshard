@@ -2,6 +2,7 @@ package io.github.lavyoung.lavshard.mybatis.internal;
 
 import io.github.lavyoung.lavshard.core.api.algorithm.AlgorithmConfig;
 import io.github.lavyoung.lavshard.core.api.exception.MissingShardKeyException;
+import io.github.lavyoung.lavshard.core.api.exception.UnsupportedSqlException;
 import io.github.lavyoung.lavshard.core.api.route.ManagedRouteDecision;
 import io.github.lavyoung.lavshard.core.api.route.PassThroughDecision;
 import io.github.lavyoung.lavshard.core.api.route.SqlRouteDecision;
@@ -14,7 +15,9 @@ import io.github.lavyoung.lavshard.core.internal.algorithm.ShardAlgorithmRegistr
 import io.github.lavyoung.lavshard.core.internal.route.SqlRouteEngine;
 import org.apache.ibatis.cache.CacheKey;
 import org.apache.ibatis.cursor.Cursor;
+import org.apache.ibatis.executor.BatchExecutor;
 import org.apache.ibatis.executor.BatchResult;
+import org.apache.ibatis.executor.CachingExecutor;
 import org.apache.ibatis.executor.Executor;
 import org.apache.ibatis.mapping.BoundSql;
 import org.apache.ibatis.mapping.MappedStatement;
@@ -27,6 +30,7 @@ import org.apache.ibatis.session.RowBounds;
 import org.apache.ibatis.transaction.Transaction;
 import org.junit.jupiter.api.Test;
 
+import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.List;
@@ -276,6 +280,90 @@ class LavShardExecutorInterceptorTest {
     }
 
     @Test
+    void shouldRejectManagedUpdateForBatchExecutorBeforeConnectionAccess() {
+        CountingTransaction transaction = new CountingTransaction();
+        Executor executor = (Executor) interceptor.plugin(
+                new BatchExecutor(configuration, transaction)
+        );
+        MappedStatement managed = statement(
+                "OrderMapper.insert",
+                SqlCommandType.INSERT,
+                "INSERT INTO t_order (user_id) VALUES (?)",
+                "userId"
+        );
+
+        assertThatThrownBy(() -> executor.update(
+                managed,
+                Map.of("userId", "user-123")
+        ))
+                .isInstanceOf(UnsupportedSqlException.class)
+                .hasMessage(
+                        "MyBatis ExecutorType.BATCH is not supported in v0.1"
+                );
+
+        assertThat(transaction.connectionAttempts).isZero();
+        assertThat(routeContext.currentDecision()).isEmpty();
+    }
+
+    @Test
+    void shouldRejectPassThroughUpdateForWrappedBatchExecutorBeforeConnectionAccess() {
+        CountingTransaction transaction = new CountingTransaction();
+        Executor batchExecutor = new BatchExecutor(
+                configuration,
+                transaction
+        );
+        Executor executor = (Executor) interceptor.plugin(
+                new CachingExecutor(batchExecutor)
+        );
+        MappedStatement passThrough = statement(
+                "DictionaryMapper.insert",
+                SqlCommandType.INSERT,
+                "INSERT INTO sys_dict (type) VALUES (?)",
+                "type"
+        );
+
+        assertThatThrownBy(() -> executor.update(
+                passThrough,
+                Map.of("type", "ORDER_STATUS")
+        ))
+                .isInstanceOf(UnsupportedSqlException.class)
+                .hasMessage(
+                        "MyBatis ExecutorType.BATCH is not supported in v0.1"
+                );
+
+        assertThat(transaction.connectionAttempts).isZero();
+        assertThat(routeContext.currentDecision()).isEmpty();
+    }
+
+    @Test
+    void shouldRejectQueryForBatchExecutorBeforeConnectionAccess() {
+        CountingTransaction transaction = new CountingTransaction();
+        Executor executor = (Executor) interceptor.plugin(
+                new BatchExecutor(configuration, transaction)
+        );
+        MappedStatement query = statement(
+                "OrderMapper.selectByUserId",
+                SqlCommandType.SELECT,
+                "SELECT * FROM t_order WHERE user_id = ?",
+                "userId"
+        );
+
+        assertThatThrownBy(() -> executor.query(
+                query,
+                Map.of("userId", "user-123"),
+                RowBounds.DEFAULT,
+                Executor.NO_RESULT_HANDLER
+        ))
+                .isInstanceOf(UnsupportedSqlException.class)
+                .hasMessage(
+                        "MyBatis ExecutorType.BATCH is not supported in v0.1"
+                );
+
+        assertThat(transaction.connectionAttempts).isZero();
+        assertThat(routeContext.currentDecision()).isEmpty();
+    }
+
+    @Test
     void shouldClearRouteContextWhenExecutorFails() {
         RecordingExecutor target =
                 new RecordingExecutor(routeContext);
@@ -451,6 +539,35 @@ class LavShardExecutorInterceptorTest {
             CacheKey cacheKey,
             SqlRouteDecision decision
     ) {
+    }
+
+    private static final class CountingTransaction
+            implements Transaction {
+
+        private int connectionAttempts;
+
+        @Override
+        public Connection getConnection() throws SQLException {
+            connectionAttempts++;
+            throw new SQLException("Physical connection was accessed");
+        }
+
+        @Override
+        public void commit() {
+        }
+
+        @Override
+        public void rollback() {
+        }
+
+        @Override
+        public void close() {
+        }
+
+        @Override
+        public Integer getTimeout() {
+            return 0;
+        }
     }
 
     private static final class RecordingExecutor

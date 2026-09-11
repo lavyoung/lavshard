@@ -41,10 +41,7 @@ public final class MyBatisParameterValueExtractor {
      * @throws NullPointerException configuration 为空时抛出
      */
     public MyBatisParameterValueExtractor(Configuration configuration) {
-        this.configuration = Objects.requireNonNull(
-                configuration,
-                "configuration must not be null"
-        );
+        this.configuration = Objects.requireNonNull(configuration, "configuration must not be null");
     }
 
     /**
@@ -55,18 +52,12 @@ public final class MyBatisParameterValueExtractor {
      * @throws NullPointerException boundSql 为空时抛出
      */
     public List<Object> extract(BoundSql boundSql) {
-        Objects.requireNonNull(
-                boundSql,
-                "boundSql must not be null"
-        );
+        Objects.requireNonNull(boundSql, "boundSql must not be null");
 
         Object parameterObject = boundSql.getParameterObject();
         TypeHandlerRegistry typeHandlerRegistry = configuration.getTypeHandlerRegistry();
-        boolean directTypeHandler = parameterObject != null
-                && typeHandlerRegistry.hasTypeHandler(parameterObject.getClass());
-        MetaObject metaObject = parameterObject == null || directTypeHandler
-                ? null
-                : configuration.newMetaObject(parameterObject);
+        boolean directTypeHandler = parameterObject != null && typeHandlerRegistry.hasTypeHandler(parameterObject.getClass());
+        MetaObject metaObject = parameterObject == null || directTypeHandler ? null : configuration.newMetaObject(parameterObject);
 
         List<Object> values = new ArrayList<>(boundSql.getParameterMappings().size());
 

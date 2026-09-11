@@ -19,6 +19,8 @@
     <description>跨模块集成测试、Spring Boot Starter 集成测试、JMH 性能压测</description>
 
     <properties>
+        <mybatis-spring.version>3.0.4</mybatis-spring.version>
+
         <maven.deploy.skip>true</maven.deploy.skip>
         <maven.install.skip>true</maven.install.skip>
         <gpg.skip>true</gpg.skip>
@@ -36,7 +38,12 @@
             <groupId>io.github.lavyoung</groupId>
             <artifactId>lavshard-spring-boot-starter</artifactId>
         </dependency>
-
+        <dependency>
+            <groupId>io.github.lavyoung</groupId>
+            <artifactId>lavshard-mybatis</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
         <!-- ==================== Spring Boot ==================== -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -45,6 +52,14 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- ==================== MyBatis 集成 ==================== -->
+        <dependency>
+            <groupId>org.mybatis</groupId>
+            <artifactId>mybatis-spring</artifactId>
+            <version>${mybatis-spring.version}</version>
             <scope>test</scope>
         </dependency>
 

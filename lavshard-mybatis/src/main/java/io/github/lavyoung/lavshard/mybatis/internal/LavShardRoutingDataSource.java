@@ -39,18 +39,10 @@ public class LavShardRoutingDataSource implements DataSource {
     private volatile int loginTimeout;
 
     public LavShardRoutingDataSource(Map<String, DataSource> dataSources, MyBatisRouteContext routeContext) {
-        Objects.requireNonNull(
-                dataSources,
-                "dataSources must not be null"
-        );
-        this.routeContext = Objects.requireNonNull(
-                routeContext,
-                "routeContext must not be null"
-        );
+        Objects.requireNonNull(dataSources, "dataSources must not be null");
+        this.routeContext = Objects.requireNonNull(routeContext, "routeContext must not be null");
         if (dataSources.isEmpty()) {
-            throw new IllegalArgumentException(
-                    "dataSources must not be empty"
-            );
+            throw new IllegalArgumentException("dataSources must not be empty");
         }
         dataSources.forEach(LavShardRoutingDataSource::validateDataSourceEntry);
         this.dataSources = Map.copyOf(dataSources);
@@ -103,36 +95,23 @@ public class LavShardRoutingDataSource implements DataSource {
 
     private static String resolveDataSourceId(SqlRouteDecision decision) throws SQLException {
         if (decision instanceof ManagedRouteDecision managed) {
-            return managed.routePlan()
-                    .units()
-                    .get(0)
-                    .target()
-                    .node()
-                    .dataSourceId();
+            return managed.routePlan().units().get(0).target().node().dataSourceId();
         }
 
         if (decision instanceof PassThroughDecision passThrough) {
             return passThrough.dataSourceId();
         }
 
-        throw new SQLException(
-                "Unsupported route decision type: "
-                        + decision.getClass().getName()
-        );
+        throw new SQLException("Unsupported route decision type: " + decision.getClass().getName());
     }
 
     private static void validateDataSourceEntry(String dataSourceId, DataSource dataSource) {
         if (dataSourceId == null || dataSourceId.isBlank()) {
-            throw new IllegalArgumentException(
-                    "dataSourceId must not be blank"
-            );
+            throw new IllegalArgumentException("dataSourceId must not be blank");
         }
 
         if (dataSource == null) {
-            throw new IllegalArgumentException(
-                    "dataSource must not be null: "
-                            + dataSourceId
-            );
+            throw new IllegalArgumentException("dataSource must not be null: " + dataSourceId);
         }
     }
 
@@ -167,26 +146,17 @@ public class LavShardRoutingDataSource implements DataSource {
 
     @Override
     public <T> T unwrap(Class<T> iface) throws SQLException {
-        Objects.requireNonNull(
-                iface,
-                "iface must not be null"
-        );
+        Objects.requireNonNull(iface, "iface must not be null");
 
         if (iface.isInstance(this)) {
             return iface.cast(this);
         }
-        throw new SQLException(
-                "Not a wrapper for "
-                        + iface.getName()
-        );
+        throw new SQLException("Not a wrapper for " + iface.getName());
     }
 
     @Override
     public boolean isWrapperFor(Class<?> iface) throws SQLException {
-        Objects.requireNonNull(
-                iface,
-                "iface must not be null"
-        );
+        Objects.requireNonNull(iface, "iface must not be null");
         return iface.isInstance(this);
     }
 }

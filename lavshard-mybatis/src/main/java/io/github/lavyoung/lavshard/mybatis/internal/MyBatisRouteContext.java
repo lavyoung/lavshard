@@ -71,10 +71,7 @@ public final class MyBatisRouteContext {
 
         stack.push(decision);
 
-        return new RouteScope(
-                stack,
-                decision
-        );
+        return new RouteScope(stack, decision);
     }
 
     /**

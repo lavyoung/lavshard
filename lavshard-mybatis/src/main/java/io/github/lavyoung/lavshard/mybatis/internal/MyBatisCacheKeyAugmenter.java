@@ -34,18 +34,9 @@ public final class MyBatisCacheKeyAugmenter {
      * @return 传入并完成增强的同一个 CacheKey
      * @throws NullPointerException 任一参数为空时抛出
      */
-    public CacheKey augment(
-            CacheKey cacheKey,
-            SqlRouteDecision decision
-    ) {
-        Objects.requireNonNull(
-                cacheKey,
-                "cacheKey must not be null"
-        );
-        Objects.requireNonNull(
-                decision,
-                "decision must not be null"
-        );
+    public CacheKey augment(CacheKey cacheKey, SqlRouteDecision decision) {
+        Objects.requireNonNull(cacheKey, "cacheKey must not be null");
+        Objects.requireNonNull(decision, "decision must not be null");
 
         cacheKey.update(NAMESPACE);
 
@@ -58,10 +49,7 @@ public final class MyBatisCacheKeyAugmenter {
         return cacheKey;
     }
 
-    private static void appendManaged(
-            CacheKey cacheKey,
-            ManagedRouteDecision decision
-    ) {
+    private static void appendManaged(CacheKey cacheKey, ManagedRouteDecision decision) {
         RoutePlan plan = decision.routePlan();
         RouteUnit unit = plan.units().get(0);
 
@@ -71,10 +59,7 @@ public final class MyBatisCacheKeyAugmenter {
         cacheKey.update(plan.topologyVersion());
     }
 
-    private static void appendPassThrough(
-            CacheKey cacheKey,
-            PassThroughDecision decision
-    ) {
+    private static void appendPassThrough(CacheKey cacheKey, PassThroughDecision decision) {
         cacheKey.update(PASSTHROUGH_MARKER);
         cacheKey.update(decision.dataSourceId());
     }

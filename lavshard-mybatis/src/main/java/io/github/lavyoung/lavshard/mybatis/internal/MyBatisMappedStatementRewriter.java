@@ -26,14 +26,8 @@ public final class MyBatisMappedStatementRewriter {
             MappedStatement mappedStatement,
             BoundSql boundSql
     ) {
-        Objects.requireNonNull(
-                mappedStatement,
-                "mappedStatement must not be null"
-        );
-        Objects.requireNonNull(
-                boundSql,
-                "boundSql must not be null"
-        );
+        Objects.requireNonNull(mappedStatement, "mappedStatement must not be null");
+        Objects.requireNonNull(boundSql, "boundSql must not be null");
 
         SqlSource physicalSqlSource = ignoredParameterObject -> boundSql;
 

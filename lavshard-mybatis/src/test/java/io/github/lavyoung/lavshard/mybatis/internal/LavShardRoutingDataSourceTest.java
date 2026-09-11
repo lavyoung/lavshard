@@ -96,7 +96,7 @@ class LavShardRoutingDataSourceTest {
         Connection connection = routingDataSource(Map.of("ds0", ds0))
                 .getConnection();
 
-        assertThatThrownBy(connection::getAutoCommit)
+        assertThatThrownBy(connection::getCatalog)
                 .isInstanceOf(SQLException.class)
                 .hasMessage("No route decision is bound to the current thread");
         assertThat(ds0.connectionAttempts()).isZero();
@@ -112,7 +112,7 @@ class LavShardRoutingDataSourceTest {
         try (MyBatisRouteContext.Scope ignored = routeContext.open(
                 new PassThroughDecision("ds-missing", "SELECT 1")
         )) {
-            assertThatThrownBy(connection::getAutoCommit)
+            assertThatThrownBy(connection::getCatalog)
                     .isInstanceOf(SQLException.class)
                     .hasMessage("Unknown dataSourceId: ds-missing");
         }
@@ -134,7 +134,7 @@ class LavShardRoutingDataSourceTest {
         try (MyBatisRouteContext.Scope ignored = routeContext.open(
                 new PassThroughDecision("ds-late", "SELECT 1")
         )) {
-            assertThatThrownBy(connection::getAutoCommit)
+            assertThatThrownBy(connection::getCatalog)
                     .isInstanceOf(SQLException.class)
                     .hasMessage("Unknown dataSourceId: ds-late");
         }
@@ -221,7 +221,7 @@ class LavShardRoutingDataSourceTest {
         try (MyBatisRouteContext.Scope ignored = routeContext.open(
                 new PassThroughDecision("ds0", "SELECT 1")
         )) {
-            connection.getAutoCommit();
+            connection.getCatalog();
         }
 
         connection.close();
@@ -256,7 +256,7 @@ class LavShardRoutingDataSourceTest {
         try (MyBatisRouteContext.Scope ignored = routeContext.open(
                 new PassThroughDecision("ds0", "SELECT 1")
         )) {
-            assertThatThrownBy(connection::getAutoCommit)
+            assertThatThrownBy(connection::getCatalog)
                     .isInstanceOf(SQLException.class)
                     .hasMessage("Cannot connect to ds0");
             assertThat(connection.getCatalog()).isEqualTo("ds0");
@@ -279,6 +279,37 @@ class LavShardRoutingDataSourceTest {
         }
 
         assertThat(ds1.connectionAttempts()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldDeferSpringTransactionPropertiesUntilRouteIsAvailable()
+            throws SQLException {
+        TrackingDataSource ds0 = new TrackingDataSource("ds0");
+        Connection connection = routingDataSource(Map.of("ds0", ds0))
+                .getConnection();
+
+        assertThat(connection.getAutoCommit()).isTrue();
+        assertThat(connection.isReadOnly()).isFalse();
+        connection.setAutoCommit(false);
+        connection.setReadOnly(true);
+
+        assertThat(connection.getAutoCommit()).isFalse();
+        assertThat(connection.isReadOnly()).isTrue();
+        assertThat(ds0.connectionAttempts()).isZero();
+    }
+
+    @Test
+    void shouldNotInitializePhysicalConnectionForEmptyTransactionCompletion()
+            throws SQLException {
+        TrackingDataSource ds0 = new TrackingDataSource("ds0");
+        Connection connection = routingDataSource(Map.of("ds0", ds0))
+                .getConnection();
+        connection.setAutoCommit(false);
+
+        connection.commit();
+        connection.rollback();
+
+        assertThat(ds0.connectionAttempts()).isZero();
     }
 
     @Test
