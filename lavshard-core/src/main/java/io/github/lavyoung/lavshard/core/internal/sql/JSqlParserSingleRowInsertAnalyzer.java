@@ -9,10 +9,13 @@ import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.insert.Insert;
+import net.sf.jsqlparser.statement.select.ParenthesedSelect;
 import net.sf.jsqlparser.statement.select.Values;
+import net.sf.jsqlparser.util.TablesNamesFinder;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 基于 JSQLParser 4.9 的严格单行 INSERT 分析器。
@@ -56,6 +59,7 @@ public final class JSqlParserSingleRowInsertAnalyzer {
         ParenthesedExpressionList<?> row =
                 requireSingleValuesRow(insert);
 
+        validateReferencedTables(statement);
         validateColumnValueCount(columns, row);
 
         return new SqlAnalysis(
@@ -80,6 +84,27 @@ public final class JSqlParserSingleRowInsertAnalyzer {
         }
     }
 
+    private static void validateReferencedTables(
+            Statement statement
+    ) {
+        SqlShapeInspector inspector =
+                new SqlShapeInspector();
+
+        Set<String> referencedTables =
+                inspector.getTables(statement);
+
+        if (inspector.containsNestedSelect()) {
+            throw new UnsupportedSqlException(
+                    "subqueries are not supported for INSERT in v0.1"
+            );
+        }
+
+        if (referencedTables.size() != 1) {
+            throw new UnsupportedSqlException(
+                    "INSERT must reference exactly one table"
+            );
+        }
+    }
 
     private static Insert requireInsert(
             Statement statement
@@ -211,5 +236,23 @@ public final class JSqlParserSingleRowInsertAnalyzer {
                     .ifPresent(predicates::add);
         }
         return List.copyOf(predicates);
+    }
+
+    private static final class SqlShapeInspector
+            extends TablesNamesFinder {
+
+        private boolean nestedSelect;
+
+        @Override
+        public void visit(
+                ParenthesedSelect selectBody
+        ) {
+            nestedSelect = true;
+            super.visit(selectBody);
+        }
+
+        private boolean containsNestedSelect() {
+            return nestedSelect;
+        }
     }
 }

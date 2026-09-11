@@ -226,6 +226,37 @@ class JSqlParserSingleRowInsertAnalyzerTest {
         );
     }
 
+    @Test
+    void shouldRejectScalarSubqueryValue() {
+        // Given
+        String sql = """
+                INSERT INTO t_order (
+                    user_id,
+                    amount
+                )
+                VALUES (
+                    ?,
+                    (
+                        SELECT MAX(amount)
+                        FROM t_order_history
+                    )
+                )
+                """;
+
+        // When
+        UnsupportedSqlException exception =
+                assertThrows(
+                        UnsupportedSqlException.class,
+                        () -> analyzer.analyze(sql)
+                );
+
+        // Then
+        assertEquals(
+                "subqueries are not supported for INSERT in v0.1",
+                exception.getMessage()
+        );
+    }
+
     private static ShardPredicate predicate(
             String column,
             ValueReference value
