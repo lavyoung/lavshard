@@ -98,9 +98,7 @@ public final class MyBatisBoundSqlRewriter {
                 );
             }
 
-            projectedMappings.add(
-                    sourceMappings.get(sourceIndex)
-            );
+            projectedMappings.add(sourceMappings.get(sourceIndex));
         }
 
         return projectedMappings;
@@ -118,11 +116,9 @@ public final class MyBatisBoundSqlRewriter {
                 continue;
             }
 
-            String rootProperty =
-                    new PropertyTokenizer(property).getName();
+            String rootProperty = new PropertyTokenizer(property).getName();
 
-            Object rootValue =
-                    source.getAdditionalParameter(rootProperty);
+            Object rootValue = source.getAdditionalParameter(rootProperty);
 
             target.setAdditionalParameter(
                     rootProperty,
