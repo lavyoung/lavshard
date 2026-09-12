@@ -24,6 +24,10 @@
             <groupId>io.github.lavyoung</groupId>
             <artifactId>lavshard-core</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.github.lavyoung</groupId>
+            <artifactId>lavshard-mybatis</artifactId>
+        </dependency>
 
         <!-- ==================== Spring Boot ==================== -->
         <!-- 自动配置核心 -->
