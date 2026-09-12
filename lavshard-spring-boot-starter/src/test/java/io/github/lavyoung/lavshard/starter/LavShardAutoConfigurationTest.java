@@ -203,7 +203,8 @@ class LavShardAutoConfigurationTest {
             );
             assertThat(imports.lines())
                     .containsExactly(
-                            LavShardAutoConfiguration.class.getName()
+                            LavShardAutoConfiguration.class.getName(),
+                            LavShardDataSourceAutoConfiguration.class.getName()
                     );
         }
     }
