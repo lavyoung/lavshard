@@ -5,6 +5,7 @@ import com.zaxxer.hikari.HikariDataSource;
 import io.github.lavyoung.lavshard.starter.autoconfigure.config.LavShardProperties;
 
 import javax.sql.DataSource;
+import java.sql.Connection;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -14,6 +15,8 @@ import java.util.Objects;
  *
  * <p>该类型只管理 {@code managed} 模式的数据源。引用应用 Bean
  * 的数据源生命周期仍由应用 Spring 容器负责。</p>
+ *
+ * <p>全部托管连接池使用配置快照指定的默认事务隔离级别，保证逻辑连接暴露的默认状态与新建物理连接的真实状态一致。</p>
  *
  * <p>注册表关闭时会关闭全部托管连接池；关闭操作可重复执行。</p>
  *
@@ -29,18 +32,20 @@ public final class LavShardManagedDataSourceRegistry implements AutoCloseable {
     /**
      * 根据已校验的配置创建全部托管连接池。
      *
-     * @param configurations 数据源 ID 到托管配置的映射
-     * @throws NullPointerException 配置映射为空时抛出
-     * @throws RuntimeException     任一连接池创建失败时抛出
+     * @param configurations              数据源 ID 到托管配置的映射
+     * @param defaultTransactionIsolation 默认 JDBC 事务隔离级别
+     * @throws NullPointerException     配置映射为空时抛出
+     * @throws IllegalArgumentException 隔离级别不受支持时抛出
+     * @throws RuntimeException         任一连接池创建失败时抛出
      */
-    public LavShardManagedDataSourceRegistry(Map<String, LavShardProperties.ManagedDataSource> configurations) {
+    public LavShardManagedDataSourceRegistry(Map<String, LavShardProperties.ManagedDataSource> configurations, int defaultTransactionIsolation) {
         Objects.requireNonNull(configurations, "configurations must not be null");
 
         Map<String, HikariDataSource> created = new LinkedHashMap<>();
 
         try {
             configurations.forEach((dataSourceId, configuration) -> {
-                created.put(dataSourceId, createPool(dataSourceId, configuration));
+                created.put(dataSourceId, createPool(dataSourceId, configuration, transactionIsolationName(defaultTransactionIsolation)));
             });
         } catch (RuntimeException exception) {
             created.values().forEach(HikariDataSource::close);
@@ -65,7 +70,15 @@ public final class LavShardManagedDataSourceRegistry implements AutoCloseable {
         managedPools.values().forEach(HikariDataSource::close);
     }
 
-    private static HikariDataSource createPool(String dataSourceId, LavShardProperties.ManagedDataSource configuration) {
+    /**
+     * 创建一个由 Starter 管理的 Hikari 连接池。
+     *
+     * @param dataSourceId  数据源 ID
+     * @param configuration 托管连接池配置
+     * @param isolationName Hikari 事务隔离级别名称
+     * @return 已启动的 Hikari 数据源
+     */
+    private static HikariDataSource createPool(String dataSourceId, LavShardProperties.ManagedDataSource configuration, String isolationName) {
         HikariConfig hikari = new HikariConfig();
         hikari.setPoolName("lavshard-" + dataSourceId);
         hikari.setJdbcUrl(configuration.url());
@@ -74,10 +87,30 @@ public final class LavShardManagedDataSourceRegistry implements AutoCloseable {
         hikari.setMaximumPoolSize(configuration.maximumPoolSize());
         hikari.setMinimumIdle(configuration.minimumIdle());
         hikari.setConnectionTimeout(configuration.connectionTimeout());
+        hikari.setTransactionIsolation(isolationName);
 
         if (!configuration.driverClassName().isBlank()) {
             hikari.setDriverClassName(configuration.driverClassName());
         }
+
         return new HikariDataSource(hikari);
+    }
+
+    /**
+     * 将 JDBC 隔离级别转换成 Hikari 接受的标准名称。
+     *
+     * @param transactionIsolation JDBC 隔离级别
+     * @return Hikari 事务隔离级别名称
+     * @throws IllegalArgumentException 隔离级别不受支持时抛出
+     */
+    private static String transactionIsolationName(int transactionIsolation) {
+        return switch (transactionIsolation) {
+            case Connection.TRANSACTION_READ_UNCOMMITTED -> "TRANSACTION_READ_UNCOMMITTED";
+            case Connection.TRANSACTION_READ_COMMITTED -> "TRANSACTION_READ_COMMITTED";
+            case Connection.TRANSACTION_REPEATABLE_READ -> "TRANSACTION_REPEATABLE_READ";
+            case Connection.TRANSACTION_SERIALIZABLE -> "TRANSACTION_SERIALIZABLE";
+            default ->
+                    throw new IllegalArgumentException("Unsupported transaction isolation level: " + transactionIsolation);
+        };
     }
 }

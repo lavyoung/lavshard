@@ -20,25 +20,20 @@ import java.util.Map;
 /**
  * LavShard 延迟路由数据源自动配置。
  *
- * <p>该配置严格按照启动期配置快照中的
- * {@code dataSourceId -> Spring Bean 名称} 映射解析物理数据源，
- * 并创建供 MyBatis 和 Spring 事务管理器共同使用的主数据源。</p>
+ * <p>该配置严格按照启动期配置快照解析应用提供的数据源 Bean
+ * 和 Starter 托管的数据源，并创建供 MyBatis 与 Spring
+ * 事务管理器共同使用的主路由数据源。</p>
  *
- * <p>这里只引用应用已经注册的物理 DataSource Bean，不负责创建
- * 连接池。Starter 托管连接池属于后续独立配置模式。</p>
+ * <p>应用提供的数据源仍由应用管理生命周期；Starter 只负责
+ * 创建和关闭 {@code managed} 模式声明的 Hikari 连接池。</p>
  *
  * @author <a href="mailto:lavyoung1325@outlook.com">lavyoung</a>
  * @version 0.1.0
  * @date 2026/09/12
  */
-@AutoConfiguration(after = LavShardAutoConfiguration.class,
-        beforeName = {
-                "org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration",
-                "org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration"
-        })
+@AutoConfiguration(after = LavShardAutoConfiguration.class, beforeName = {"org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration", "org.springframework.boot.autoconfigure.jdbc." + "DataSourceTransactionManagerAutoConfiguration"})
 @ConditionalOnProperty(prefix = "lavshard", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class LavShardDataSourceAutoConfiguration {
-
 
     /**
      * 创建应用统一使用的延迟路由数据源。
@@ -47,9 +42,10 @@ public class LavShardDataSourceAutoConfiguration {
      * Spring 事务管理器和 MyBatis 默认选择路由数据源，而不是任意
      * 一个物理连接池。</p>
      *
-     * @param snapshot     启动期不可变配置快照
-     * @param routeContext MyBatis 当前线程路由上下文
-     * @param beanFactory  Spring Bean 查询入口
+     * @param snapshot        启动期不可变配置快照
+     * @param routeContext    MyBatis 当前线程路由上下文
+     * @param beanFactory     Spring Bean 查询入口
+     * @param managedRegistry Starter 托管连接池注册表
      * @return 延迟路由数据源
      * @throws ConfigurationException 配置引用的数据源 Bean 不存在
      *                                或类型错误时抛出
@@ -64,18 +60,19 @@ public class LavShardDataSourceAutoConfiguration {
     }
 
     /**
-     * 严格解析配置中声明的全部物理 DataSource Bean。
+     * 严格解析配置中声明的全部物理数据源。
      *
-     * <p>只解析快照明确列出的 Bean，不收集容器中的全部 DataSource，
-     * 防止无关数据源意外成为可路由目标。方法返回不可变映射。</p>
+     * <p>只解析快照明确列出的 Bean 和托管数据源，不收集容器中的
+     * 全部 DataSource，防止无关数据源意外成为可路由目标。
+     * 方法返回不可变映射。</p>
      *
-     * @param snapshot    配置快照
-     * @param beanFactory Spring Bean 查询入口
+     * @param snapshot        配置快照
+     * @param beanFactory     Spring Bean 查询入口
+     * @param managedRegistry Starter 托管连接池注册表
      * @return dataSourceId 到物理 DataSource 的不可变映射
      * @throws ConfigurationException Bean 不存在或类型错误时抛出
      */
     private static Map<String, DataSource> resolvePhysicalDataSources(LavShardConfigurationSnapshot snapshot, ConfigurableListableBeanFactory beanFactory, LavShardManagedDataSourceRegistry managedRegistry) {
-
         Map<String, DataSource> resolved = new LinkedHashMap<>(managedRegistry.dataSources());
 
         snapshot.dataSourceBeanNames().forEach((dataSourceId, beanName) -> resolved.put(dataSourceId, resolveDataSource(dataSourceId, beanName, beanFactory)));
@@ -112,7 +109,6 @@ public class LavShardDataSourceAutoConfiguration {
      */
     @Bean(destroyMethod = "close")
     public LavShardManagedDataSourceRegistry lavShardManagedDataSourceRegistry(LavShardConfigurationSnapshot snapshot) {
-        return new LavShardManagedDataSourceRegistry(snapshot.managedDataSources());
+        return new LavShardManagedDataSourceRegistry(snapshot.managedDataSources(), snapshot.defaultTransactionIsolation());
     }
-
 }

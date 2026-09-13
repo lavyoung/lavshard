@@ -406,6 +406,69 @@ class LavShardDataSourceAutoConfigurationTest {
                 });
     }
 
+    @Test
+    void shouldApplyDefaultIsolationToManagedPool() {
+        contextRunner
+                .withPropertyValues(onlyManagedDataSourceProperties())
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    LavShardManagedDataSourceRegistry registry =
+                            context.getBean(
+                                    LavShardManagedDataSourceRegistry.class
+                            );
+                    HikariDataSource managed = (HikariDataSource)
+                            registry.dataSources().get("ds0");
+
+                    assertThat(managed.getTransactionIsolation())
+                            .isEqualTo("TRANSACTION_REPEATABLE_READ");
+                });
+    }
+
+    @Test
+    void shouldKeepConfiguredIsolationConsistentAcrossLogicalPoolAndPhysicalConnection()
+            throws SQLException {
+        contextRunner
+                .withPropertyValues(onlyManagedDataSourceProperties())
+                .withPropertyValues(
+                        "lavshard.integration.default-transaction-isolation="
+                                + "read-committed"
+                )
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    LavShardManagedDataSourceRegistry registry =
+                            context.getBean(
+                                    LavShardManagedDataSourceRegistry.class
+                            );
+                    HikariDataSource managed = (HikariDataSource)
+                            registry.dataSources().get("ds0");
+                    LavShardRoutingDataSource routing = context.getBean(
+                            LavShardRoutingDataSource.class
+                    );
+                    MyBatisRouteContext routeContext = context.getBean(
+                            MyBatisRouteContext.class
+                    );
+
+                    assertThat(managed.getTransactionIsolation())
+                            .isEqualTo("TRANSACTION_READ_COMMITTED");
+
+                    try (Connection logical = routing.getConnection()) {
+                        assertThat(logical.getTransactionIsolation())
+                                .isEqualTo(Connection.TRANSACTION_READ_COMMITTED);
+
+                        try (MyBatisRouteContext.Scope ignored = routeContext.open(
+                                new PassThroughDecision("ds0", "SELECT 1")
+                        )) {
+                            try (Statement statement = logical.createStatement()) {
+                                assertThat(statement.execute("SELECT 1")).isTrue();
+                            }
+                        }
+
+                        assertThat(logical.getTransactionIsolation())
+                                .isEqualTo(Connection.TRANSACTION_READ_COMMITTED);
+                    }
+                });
+    }
+
     private static void initialize(
             Connection connection,
             MyBatisRouteContext routeContext,
