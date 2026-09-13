@@ -31,6 +31,7 @@ final class LazyRoutingConnection implements InvocationHandler {
 
     private Connection physicalConnection;
     private boolean closed;
+    private boolean physicalClosePending;
 
     private boolean autoCommit = true;
     private boolean autoCommitConfigured;
@@ -213,8 +214,10 @@ final class LazyRoutingConnection implements InvocationHandler {
     private static void closeAfterInitializationFailure(Connection acquired, Throwable originalFailure) {
         try {
             acquired.close();
-        } catch (SQLException closeFailure) {
-            originalFailure.addSuppressed(closeFailure);
+        } catch (SQLException | RuntimeException closeFailure) {
+            if (closeFailure != originalFailure) {
+                originalFailure.addSuppressed(closeFailure);
+            }
         }
     }
 
@@ -355,20 +358,25 @@ final class LazyRoutingConnection implements InvocationHandler {
     }
 
     /**
-     * 关闭逻辑连接及已经创建的物理连接。
+     * 关闭逻辑连接，并尝试释放已创建的物理连接。
+     *
+     * <p>物理关闭失败后继续禁止 SQL，但允许再次调用 close 重试清理。</p>
      *
      * @throws SQLException 物理连接关闭失败时抛出
      */
     private synchronized void closeConnection() throws SQLException {
-        if (closed) {
+        if (!closed) {
+            closed = true;
+            physicalClosePending = physicalConnection != null;
+        }
+
+        if (!physicalClosePending) {
             return;
         }
 
-        closed = true;
-
-        if (physicalConnection != null) {
-            physicalConnection.close();
-        }
+        physicalConnection.close();
+        physicalConnection = null;
+        physicalClosePending = false;
     }
 
     private synchronized void ensureOpen() throws SQLException {
