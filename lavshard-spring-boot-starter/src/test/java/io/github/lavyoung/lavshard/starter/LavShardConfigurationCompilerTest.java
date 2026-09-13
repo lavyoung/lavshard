@@ -82,6 +82,134 @@ class LavShardConfigurationCompilerTest {
     }
 
     @Test
+    void shouldBindAndCompileMixedReferencedAndManagedDataSources() {
+        Map<String, Object> source = new HashMap<>();
+        source.put("lavshard.integration.default-data-source", "ds0");
+        source.put("lavshard.data-sources[ds0].bean-name", "applicationDataSource");
+        source.put("lavshard.data-sources[ds1].managed.url", "jdbc:h2:mem:managed");
+        source.put("lavshard.data-sources[ds1].managed.username", "sa");
+        source.put("lavshard.data-sources[ds1].managed.password", "secret");
+        source.put("lavshard.data-sources[ds1].managed.driver-class-name", "org.h2.Driver");
+        source.put("lavshard.data-sources[ds1].managed.maximum-pool-size", "6");
+        source.put("lavshard.data-sources[ds1].managed.minimum-idle", "2");
+        source.put("lavshard.data-sources[ds1].managed.connection-timeout", "5000");
+        LavShardProperties properties = bind(source);
+
+        LavShardConfigurationSnapshot snapshot = compiler.compile(properties);
+
+        assertThat(snapshot.dataSourceBeanNames())
+                .containsExactly(Map.entry("ds0", "applicationDataSource"));
+        assertThat(snapshot.managedDataSources())
+                .containsOnlyKeys("ds1");
+        LavShardProperties.ManagedDataSource managed =
+                snapshot.managedDataSources().get("ds1");
+        assertThat(managed.url()).isEqualTo("jdbc:h2:mem:managed");
+        assertThat(managed.username()).isEqualTo("sa");
+        assertThat(managed.password()).isEqualTo("secret");
+        assertThat(managed.driverClassName()).isEqualTo("org.h2.Driver");
+        assertThat(managed.maximumPoolSize()).isEqualTo(6);
+        assertThat(managed.minimumIdle()).isEqualTo(2);
+        assertThat(managed.connectionTimeout()).isEqualTo(5000L);
+        assertThatThrownBy(() -> snapshot.managedDataSources().clear())
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void shouldApplyStableManagedPoolDefaults() {
+        Map<String, Object> source = new HashMap<>();
+        source.put("lavshard.integration.default-data-source", "ds0");
+        source.put("lavshard.data-sources[ds0].managed.url", "jdbc:h2:mem:defaulted");
+
+        LavShardConfigurationSnapshot snapshot = compiler.compile(bind(source));
+        LavShardProperties.ManagedDataSource managed =
+                snapshot.managedDataSources().get("ds0");
+
+        assertThat(managed.username()).isEmpty();
+        assertThat(managed.password()).isEmpty();
+        assertThat(managed.driverClassName()).isEmpty();
+        assertThat(managed.maximumPoolSize()).isEqualTo(10);
+        assertThat(managed.minimumIdle()).isEqualTo(10);
+        assertThat(managed.connectionTimeout()).isEqualTo(30000L);
+    }
+
+    @Test
+    void shouldRejectDataSourceWithBothReferenceAndManagedPool() {
+        assertDataSourceConfigurationFailure(
+                new LavShardProperties.DataSourceReference(
+                        "applicationDataSource",
+                        managedDataSource("jdbc:h2:mem:duplicate")
+                ),
+                "lavshard.data-sources.ds0 must configure exactly one of "
+                        + "bean-name or managed"
+        );
+    }
+
+    @Test
+    void shouldRejectDataSourceWithoutReferenceOrManagedPool() {
+        assertDataSourceConfigurationFailure(
+                new LavShardProperties.DataSourceReference("", null),
+                "lavshard.data-sources.ds0 must configure exactly one of "
+                        + "bean-name or managed"
+        );
+    }
+
+    @Test
+    void shouldRejectInvalidManagedPoolConfigurationWithoutLeakingPassword() {
+        LavShardProperties.ManagedDataSource managed =
+                new LavShardProperties.ManagedDataSource(
+                        " ",
+                        "user",
+                        "top-secret-password",
+                        "",
+                        0,
+                        -1,
+                        100L
+                );
+        LavShardProperties properties = propertiesWithDataSource(
+                new LavShardProperties.DataSourceReference("", managed)
+        );
+
+        assertThatThrownBy(() -> compiler.compile(properties))
+                .isInstanceOf(ConfigurationException.class)
+                .hasMessage(
+                        "lavshard.data-sources.ds0.managed.url must not be blank"
+                )
+                .hasMessageNotContaining("top-secret-password");
+    }
+
+    @Test
+    void shouldRejectEveryInvalidManagedPoolSizeBoundary() {
+        assertManagedFailure(
+                new LavShardProperties.ManagedDataSource(
+                        "jdbc:h2:mem:max", "", "", "", 0, 0, 30000L
+                ),
+                "lavshard.data-sources.ds0.managed.maximum-pool-size "
+                        + "must be greater than zero"
+        );
+        assertManagedFailure(
+                new LavShardProperties.ManagedDataSource(
+                        "jdbc:h2:mem:min", "", "", "", 4, -1, 30000L
+                ),
+                "lavshard.data-sources.ds0.managed.minimum-idle "
+                        + "must be between zero and maximum-pool-size"
+        );
+        assertManagedFailure(
+                new LavShardProperties.ManagedDataSource(
+                        "jdbc:h2:mem:min", "", "", "", 4, 5, 30000L
+                ),
+                "lavshard.data-sources.ds0.managed.minimum-idle "
+                        + "must be between zero and maximum-pool-size"
+        );
+        assertManagedFailure(
+                new LavShardProperties.ManagedDataSource(
+                        "jdbc:h2:mem:timeout", "", "", "", 4, 1, 249L
+                ),
+                "lavshard.data-sources.ds0.managed.connection-timeout "
+                        + "must be at least 250 milliseconds"
+        );
+    }
+
+    @Test
     void shouldSnapshotMutableConfigurationCollections() {
         Map<String, LavShardProperties.DataSourceReference> dataSources =
                 new HashMap<>();
@@ -308,6 +436,62 @@ class LavShardConfigurationCompilerTest {
         assertThatThrownBy(() -> compiler.compile(properties))
                 .isInstanceOf(ConfigurationException.class)
                 .hasMessage(message);
+    }
+
+    private void assertDataSourceConfigurationFailure(
+            LavShardProperties.DataSourceReference dataSource,
+            String message
+    ) {
+        assertConfigurationFailure(
+                propertiesWithDataSource(dataSource),
+                message
+        );
+    }
+
+    private void assertManagedFailure(
+            LavShardProperties.ManagedDataSource managed,
+            String message
+    ) {
+        assertDataSourceConfigurationFailure(
+                new LavShardProperties.DataSourceReference("", managed),
+                message
+        );
+    }
+
+    private static LavShardProperties propertiesWithDataSource(
+            LavShardProperties.DataSourceReference dataSource
+    ) {
+        return new LavShardProperties(
+                true,
+                new LavShardProperties.Integration("ds0", Set.of()),
+                Map.of("ds0", dataSource),
+                Map.of()
+        );
+    }
+
+    private static LavShardProperties.ManagedDataSource managedDataSource(
+            String url
+    ) {
+        return new LavShardProperties.ManagedDataSource(
+                url,
+                "",
+                "",
+                "",
+                10,
+                10,
+                30000L
+        );
+    }
+
+    private static LavShardProperties bind(Map<String, Object> source) {
+        return new Binder(
+                new MapConfigurationPropertySource(source)
+        ).bind(
+                "lavshard",
+                Bindable.of(LavShardProperties.class)
+        ).orElseThrow(() -> new AssertionError(
+                "LavShard properties were not bound"
+        ));
     }
 
     private static LavShardProperties validProperties(

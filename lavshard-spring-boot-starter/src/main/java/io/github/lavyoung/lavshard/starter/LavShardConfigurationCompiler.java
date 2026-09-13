@@ -22,56 +22,55 @@ import java.util.*;
  */
 public final class LavShardConfigurationCompiler {
 
-    public LavShardConfigurationSnapshot compile(
-            LavShardProperties properties
-    ) {
+    public LavShardConfigurationSnapshot compile(LavShardProperties properties) {
         Objects.requireNonNull(properties, "properties must not be null");
-        Map<String, String> dataSourceBeanNames = compileDataSourceBeanName(properties.dataSources());
 
+        CompiledDataSources dataSources = compileDataSources(properties.dataSources());
 
-        String defaultDataSourceId = requireText(properties.integration().defaultDataSource(),
-                "lavshard.integration.default-data-source must not be blank");
+        String defaultDataSourceId = requireText(properties.integration().defaultDataSource(), "lavshard.integration.default-data-source must not be blank");
 
-        if (!dataSourceBeanNames.containsKey(defaultDataSourceId)) {
-            throw new ConfigurationException("lavshard.integration.default-data-source "
-                    + "references unknown dataSourceId: " + defaultDataSourceId);
+        if (!dataSources.dataSourceIds().contains(defaultDataSourceId)) {
+            throw new ConfigurationException("lavshard.integration.default-data-source " + "references unknown dataSourceId: " + defaultDataSourceId);
         }
 
         Set<QualifiedTableName> ordinaryTables = compileOrdinaryTables(properties.integration().ordinaryTables());
 
-        List<TableRule> rules = compileRules(properties.tables(), dataSourceBeanNames.keySet());
+        List<TableRule> rules = compileRules(properties.tables(), dataSources.dataSourceIds());
 
         rejectManagedOrdinaryOverlap(rules, ordinaryTables);
 
-        return new LavShardConfigurationSnapshot(
-                dataSourceBeanNames,
-                defaultDataSourceId,
-                ordinaryTables,
-                new RuleSnapshot(rules)
-        );
+        return new LavShardConfigurationSnapshot(dataSources.beanNames(), dataSources.managedDataSources(), defaultDataSourceId, ordinaryTables, new RuleSnapshot(rules));
     }
 
-    private static Map<String, String> compileDataSourceBeanName(
-            Map<String, LavShardProperties.DataSourceReference> sources
-    ) {
+    private static CompiledDataSources compileDataSources(Map<String, LavShardProperties.DataSourceReference> sources) {
         if (sources.isEmpty()) {
             throw new ConfigurationException("lavshard.data-sources must not be empty");
         }
 
-        Map<String, String> beanNames = new HashMap<>();
+        Map<String, String> beanNames = new LinkedHashMap<>();
+        Map<String, LavShardProperties.ManagedDataSource> managedDataSources = new LinkedHashMap<>();
 
         for (Map.Entry<String, LavShardProperties.DataSourceReference> entry : sources.entrySet()) {
-            String dataSourceId = requireText(entry.getKey(), "lavshard.data-sources must not contain blank dataSourceId");
-            LavShardProperties.DataSourceReference reference = Objects.requireNonNull(entry.getValue(),
-                    "dataSource reference must not be null");
-            String beanName = requireText(reference.beanName(), "lavshard.data-sources." + dataSourceId
-                    + ".bean-name must not be blank");
+            String dataSourceId = requireText(entry.getKey(), "lavshard.data-sources must not contain " + "blank dataSourceId");
+            LavShardProperties.DataSourceReference reference = Objects.requireNonNull(entry.getValue(), "dataSource reference must not be null");
 
-            beanNames.put(dataSourceId, beanName);
+            boolean hasBeanName = !reference.beanName().isEmpty();
+            boolean hasManaged = reference.managed() != null;
 
+            if (hasBeanName == hasManaged) {
+                throw new ConfigurationException("lavshard.data-sources." + dataSourceId + " must configure exactly one of " + "bean-name or managed");
+            }
+
+            if (hasBeanName) {
+                String beanName = requireText(reference.beanName(), "lavshard.data-sources." + dataSourceId + ".bean-name must not be blank");
+                beanNames.put(dataSourceId, beanName);
+                continue;
+            }
+
+            managedDataSources.put(dataSourceId, validateManagedDataSource(dataSourceId, reference.managed()));
         }
 
-        return Map.copyOf(beanNames);
+        return new CompiledDataSources(beanNames, managedDataSources);
     }
 
     private static Set<QualifiedTableName> compileOrdinaryTables(Set<String> configuredTables) {
@@ -115,28 +114,17 @@ public final class LavShardConfigurationCompiler {
         Map<String, ShardNode> nodes = compileNodes(tablePath, configuredTopology.nodes(), dataSourceIds);
 
         try {
-            ShardTopology topology = new ShardTopology(configuredTopology.version(),
-                    configuredTopology.bucketCount(),
-                    configuredTopology.bucketPlacements(),
-                    nodes);
+            ShardTopology topology = new ShardTopology(configuredTopology.version(), configuredTopology.bucketCount(), configuredTopology.bucketPlacements(), nodes);
 
             AlgorithmConfig algorithmConfig = new AlgorithmConfig(configuredTopology.bucketCount(), hashVersion);
 
-            return new TableRule(
-                    ruleVersion,
-                    new QualifiedTableName(logicalTable),
-                    shardingColumn,
-                    algorithmName,
-                    algorithmConfig,
-                    topology
-            );
+            return new TableRule(ruleVersion, new QualifiedTableName(logicalTable), shardingColumn, algorithmName, algorithmConfig, topology);
         } catch (IllegalArgumentException exception) {
             throw new ConfigurationException("Invalid " + tablePath + ": " + exception.getMessage(), exception);
         }
     }
 
-    private static Map<String, ShardNode> compileNodes(String tablePath, Map<String, LavShardProperties.Node> configuredNodes,
-                                                       Set<String> dataSourceIds) {
+    private static Map<String, ShardNode> compileNodes(String tablePath, Map<String, LavShardProperties.Node> configuredNodes, Set<String> dataSourceIds) {
         Map<String, ShardNode> nodes = new HashMap<>();
         for (Map.Entry<String, LavShardProperties.Node> entry : configuredNodes.entrySet()) {
             String nodeId = requireText(entry.getKey(), tablePath + ".topology.nodes must not contain blank nodeId");
@@ -150,16 +138,9 @@ public final class LavShardConfigurationCompiler {
             }
 
 
-            String actualTable = requireText(
-                    node.actualTable(),
-                    tablePath + ".topology.nodes." + nodeId + ".actual-table must not be blank"
-            );
+            String actualTable = requireText(node.actualTable(), tablePath + ".topology.nodes." + nodeId + ".actual-table must not be blank");
 
-            nodes.put(nodeId, new ShardNode(
-                    nodeId,
-                    dataSourceId,
-                    new QualifiedTableName(actualTable))
-            );
+            nodes.put(nodeId, new ShardNode(nodeId, dataSourceId, new QualifiedTableName(actualTable)));
 
         }
 
@@ -170,11 +151,46 @@ public final class LavShardConfigurationCompiler {
     private static void rejectManagedOrdinaryOverlap(List<TableRule> rules, Set<QualifiedTableName> ordinaryTables) {
         for (TableRule rule : rules) {
             if (ordinaryTables.contains(rule.logicalTable())) {
-                throw new ConfigurationException(
-                        "Table cannot be both managed and ordinary: "
-                                + rule.logicalTable()
-                );
+                throw new ConfigurationException("Table cannot be both managed and ordinary: " + rule.logicalTable());
             }
+        }
+    }
+
+    private static LavShardProperties.ManagedDataSource validateManagedDataSource(String dataSourceId, LavShardProperties.ManagedDataSource managed) {
+        String path = "lavshard.data-sources." + dataSourceId + ".managed";
+
+        requireText(managed.url(), path + ".url must not be blank");
+
+        if (managed.maximumPoolSize() <= 0) {
+            throw new ConfigurationException(path + ".maximum-pool-size " + "must be greater than zero");
+        }
+
+        if (managed.minimumIdle() < 0 || managed.minimumIdle() > managed.maximumPoolSize()) {
+            throw new ConfigurationException(path + ".minimum-idle must be between zero " + "and maximum-pool-size");
+        }
+
+        if (managed.connectionTimeout() < 250L) {
+            throw new ConfigurationException(path + ".connection-timeout " + "must be at least 250 milliseconds");
+        }
+
+        return managed;
+    }
+
+    /**
+     * 已完成校验的两类物理数据源配置。
+     */
+    private record CompiledDataSources(Map<String, String> beanNames,
+                                       Map<String, LavShardProperties.ManagedDataSource> managedDataSources) {
+
+        private CompiledDataSources {
+            beanNames = Map.copyOf(beanNames);
+            managedDataSources = Map.copyOf(managedDataSources);
+        }
+
+        private Set<String> dataSourceIds() {
+            Set<String> ids = new HashSet<>(beanNames.keySet());
+            ids.addAll(managedDataSources.keySet());
+            return Set.copyOf(ids);
         }
     }
 

@@ -63,9 +63,10 @@ public class LavShardDataSourceAutoConfiguration {
     public LavShardRoutingDataSource lavShardDataSource(
             LavShardConfigurationSnapshot snapshot,
             MyBatisRouteContext routeContext,
-            ConfigurableListableBeanFactory beanFactory
+            ConfigurableListableBeanFactory beanFactory,
+            LavShardManagedDataSourceRegistry managedRegistry
     ) {
-        Map<String, DataSource> physicalDataSources = resolvePhysicalDataSources(snapshot, beanFactory);
+        Map<String, DataSource> physicalDataSources = resolvePhysicalDataSources(snapshot, beanFactory, managedRegistry);
 
         return new LavShardRoutingDataSource(
                 physicalDataSources,
@@ -84,14 +85,23 @@ public class LavShardDataSourceAutoConfiguration {
      * @return dataSourceId 到物理 DataSource 的不可变映射
      * @throws ConfigurationException Bean 不存在或类型错误时抛出
      */
-    private static Map<String, DataSource> resolvePhysicalDataSources(LavShardConfigurationSnapshot snapshot, ConfigurableListableBeanFactory beanFactory) {
-        Map<String, DataSource> resolveDataSources = new LinkedHashMap<>();
+    private static Map<String, DataSource> resolvePhysicalDataSources(LavShardConfigurationSnapshot snapshot, ConfigurableListableBeanFactory beanFactory, LavShardManagedDataSourceRegistry managedRegistry) {
 
-        snapshot.dataSourceBeanNames().forEach((dataSourceId, beanName) -> {
-            resolveDataSources.put(dataSourceId, resolveDataSource(dataSourceId, beanName, beanFactory));
-        });
+        Map<String, DataSource> resolved = new LinkedHashMap<>(managedRegistry.dataSources());
 
-        return Map.copyOf(resolveDataSources);
+        snapshot.dataSourceBeanNames().forEach(
+                (dataSourceId, beanName) ->
+                        resolved.put(
+                                dataSourceId,
+                                resolveDataSource(
+                                        dataSourceId,
+                                        beanName,
+                                        beanFactory
+                                )
+                        )
+        );
+
+        return Map.copyOf(resolved);
     }
 
     /**
@@ -126,4 +136,17 @@ public class LavShardDataSourceAutoConfiguration {
             );
         }
     }
+
+    /**
+     * 创建并托管配置中声明的 Hikari 物理连接池。
+     *
+     * @param snapshot 已编译配置快照
+     * @return 托管连接池注册表
+     */
+    @Bean(destroyMethod = "close")
+    public LavShardManagedDataSourceRegistry
+    lavShardManagedDataSourceRegistry(LavShardConfigurationSnapshot snapshot) {
+        return new LavShardManagedDataSourceRegistry(snapshot.managedDataSources());
+    }
+
 }

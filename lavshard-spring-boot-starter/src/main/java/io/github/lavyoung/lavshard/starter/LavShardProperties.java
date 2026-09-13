@@ -82,14 +82,58 @@ public record LavShardProperties(
                     : Set.copyOf(managedMapperPackages);
         }
     }
+
     /**
-     * Spring DataSource Bean 引用。
+     * 单个物理数据源配置。
      *
-     * @param beanName DataSource Bean 名称
+     * <p>每个数据源必须且只能选择引用应用 Bean 或由 Starter
+     * 创建连接池两种模式之一。</p>
+     *
+     * @param beanName 应用提供的 DataSource Bean 名称
+     * @param managed  Starter 托管连接池配置
      */
-    public record DataSourceReference(String beanName) {
+    public record DataSourceReference(String beanName, ManagedDataSource managed) {
+
+        /**
+         * 兼容原有只引用 Spring Bean 的构造方式。
+         *
+         * @param beanName DataSource Bean 名称
+         */
+        public DataSourceReference(String beanName) {
+            this(beanName, null);
+        }
+
+        @ConstructorBinding
         public DataSourceReference {
             beanName = Objects.requireNonNullElse(beanName, Strings.EMPTY);
+        }
+    }
+
+    /**
+     * Starter 托管 Hikari 连接池配置。
+     *
+     * @param url               JDBC URL
+     * @param username          数据库用户名
+     * @param password          数据库密码
+     * @param driverClassName   JDBC 驱动类；空值时由 JDBC URL 自动推断
+     * @param maximumPoolSize   最大连接数
+     * @param minimumIdle       最小空闲连接数
+     * @param connectionTimeout 获取连接的最长等待毫秒数
+     */
+    public record ManagedDataSource(
+            String url,
+            String username,
+            String password,
+            String driverClassName,
+            @DefaultValue("10") int maximumPoolSize,
+            @DefaultValue("10") int minimumIdle,
+            @DefaultValue("30000") long connectionTimeout
+    ) {
+        public ManagedDataSource {
+            url = Objects.requireNonNullElse(url, Strings.EMPTY);
+            username = Objects.requireNonNullElse(username, Strings.EMPTY);
+            password = Objects.requireNonNullElse(password, Strings.EMPTY);
+            driverClassName = Objects.requireNonNullElse(driverClassName, Strings.EMPTY);
         }
     }
 

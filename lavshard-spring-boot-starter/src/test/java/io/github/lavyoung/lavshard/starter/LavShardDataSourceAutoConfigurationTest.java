@@ -1,5 +1,6 @@
 package io.github.lavyoung.lavshard.starter;
 
+import com.zaxxer.hikari.HikariDataSource;
 import io.github.lavyoung.lavshard.core.api.algorithm.AlgorithmConfig;
 import io.github.lavyoung.lavshard.core.api.algorithm.ShardAlgorithm;
 import io.github.lavyoung.lavshard.core.api.algorithm.ShardBucket;
@@ -24,6 +25,8 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -51,6 +54,11 @@ class LavShardDataSourceAutoConfigurationTest {
                     assertThat(context).hasNotFailed();
                     assertThat(context)
                             .hasSingleBean(LavShardRoutingDataSource.class);
+                    assertThat(context)
+                            .hasSingleBean(LavShardManagedDataSourceRegistry.class);
+                    assertThat(context.getBean(
+                            LavShardManagedDataSourceRegistry.class
+                    ).dataSources()).isEmpty();
 
                     LavShardRoutingDataSource routingDataSource =
                             context.getBean(
@@ -237,7 +245,88 @@ class LavShardDataSourceAutoConfigurationTest {
                     assertThat(context)
                             .doesNotHaveBean(LavShardRoutingDataSource.class);
                     assertThat(context)
+                            .doesNotHaveBean(LavShardManagedDataSourceRegistry.class);
+                    assertThat(context)
                             .doesNotHaveBean("lavShardDataSource");
+                });
+    }
+
+    @Test
+    void shouldCreateAndRouteToManagedHikariAlongsideReferencedDataSource()
+            throws SQLException {
+        AtomicReference<HikariDataSource> managedPool =
+                new AtomicReference<>();
+
+        contextRunner
+                .withUserConfiguration(OnlyFirstDataSourceConfiguration.class)
+                .withPropertyValues(mixedDataSourceProperties())
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    LavShardManagedDataSourceRegistry registry =
+                            context.getBean(
+                                    LavShardManagedDataSourceRegistry.class
+                            );
+                    assertThat(registry.dataSources()).containsOnlyKeys("ds1");
+                    HikariDataSource hikari = (HikariDataSource)
+                            registry.dataSources().get("ds1");
+                    managedPool.set(hikari);
+
+                    assertThat(hikari.getPoolName())
+                            .isEqualTo("lavshard-ds1");
+                    assertThat(hikari.getMaximumPoolSize()).isEqualTo(4);
+                    assertThat(hikari.getMinimumIdle()).isEqualTo(1);
+                    assertThat(hikari.getConnectionTimeout()).isEqualTo(1000L);
+                    assertThat(hikari.isClosed()).isFalse();
+
+                    LavShardRoutingDataSource routing = context.getBean(
+                            LavShardRoutingDataSource.class
+                    );
+                    MyBatisRouteContext routeContext = context.getBean(
+                            MyBatisRouteContext.class
+                    );
+                    Connection connection = routing.getConnection();
+
+                    try (MyBatisRouteContext.Scope ignored = routeContext.open(
+                            new PassThroughDecision("ds1", "SELECT 1")
+                    )) {
+                        try (Statement statement = connection.createStatement()) {
+                            assertThat(statement.execute("SELECT 1")).isTrue();
+                        }
+                    }
+
+                    connection.close();
+                });
+
+        assertThat(managedPool.get()).isNotNull();
+        assertThat(managedPool.get().isClosed()).isTrue();
+    }
+
+    @Test
+    void shouldCreateRoutingDataSourceWithOnlyManagedPools() throws SQLException {
+        contextRunner
+                .withPropertyValues(onlyManagedDataSourceProperties())
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context)
+                            .hasSingleBean(LavShardManagedDataSourceRegistry.class);
+                    assertThat(context)
+                            .hasSingleBean(LavShardRoutingDataSource.class);
+
+                    LavShardRoutingDataSource routing = context.getBean(
+                            LavShardRoutingDataSource.class
+                    );
+                    MyBatisRouteContext routeContext = context.getBean(
+                            MyBatisRouteContext.class
+                    );
+                    Connection connection = routing.getConnection();
+
+                    try (MyBatisRouteContext.Scope ignored = routeContext.open(
+                            new PassThroughDecision("ds0", "SELECT 1")
+                    )) {
+                        assertThat(connection.isValid(1)).isTrue();
+                    }
+
+                    connection.close();
                 });
     }
 
@@ -269,6 +358,46 @@ class LavShardDataSourceAutoConfigurationTest {
                 "lavshard.tables[t_order].topology.nodes[node0].actual-table=t_order",
                 "lavshard.tables[t_order].topology.nodes[node1].data-source=ds1",
                 "lavshard.tables[t_order].topology.nodes[node1].actual-table=t_order"
+        };
+    }
+
+    private static String[] mixedDataSourceProperties() {
+        String databaseName = "managed-" + UUID.randomUUID();
+        return new String[]{
+                "lavshard.integration.default-data-source=ds0",
+                "lavshard.data-sources[ds0].bean-name=orderDataSource0",
+                "lavshard.data-sources[ds1].managed.url=jdbc:h2:mem:"
+                        + databaseName + ";DB_CLOSE_DELAY=-1",
+                "lavshard.data-sources[ds1].managed.username=sa",
+                "lavshard.data-sources[ds1].managed.password=",
+                "lavshard.data-sources[ds1].managed.driver-class-name=org.h2.Driver",
+                "lavshard.data-sources[ds1].managed.maximum-pool-size=4",
+                "lavshard.data-sources[ds1].managed.minimum-idle=1",
+                "lavshard.data-sources[ds1].managed.connection-timeout=1000",
+                "lavshard.tables[t_order].rule-version=order-rule-v1",
+                "lavshard.tables[t_order].sharding-column=user_id",
+                "lavshard.tables[t_order].algorithm.name=hash_mod",
+                "lavshard.tables[t_order].algorithm.hash-version=murmur3_32_v1",
+                "lavshard.tables[t_order].topology.version=order-topology-v1",
+                "lavshard.tables[t_order].topology.bucket-count=2",
+                "lavshard.tables[t_order].topology.bucket-placements[0]=node0",
+                "lavshard.tables[t_order].topology.bucket-placements[1]=node1",
+                "lavshard.tables[t_order].topology.nodes[node0].data-source=ds0",
+                "lavshard.tables[t_order].topology.nodes[node0].actual-table=t_order_00",
+                "lavshard.tables[t_order].topology.nodes[node1].data-source=ds1",
+                "lavshard.tables[t_order].topology.nodes[node1].actual-table=t_order_00"
+        };
+    }
+
+    private static String[] onlyManagedDataSourceProperties() {
+        String databaseName = "managed-only-" + UUID.randomUUID();
+        return new String[]{
+                "lavshard.integration.default-data-source=ds0",
+                "lavshard.data-sources[ds0].managed.url=jdbc:h2:mem:"
+                        + databaseName + ";DB_CLOSE_DELAY=-1",
+                "lavshard.data-sources[ds0].managed.username=sa",
+                "lavshard.data-sources[ds0].managed.password=",
+                "lavshard.data-sources[ds0].managed.driver-class-name=org.h2.Driver"
         };
     }
 
