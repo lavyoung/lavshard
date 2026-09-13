@@ -5,6 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
+import java.sql.Connection;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -33,7 +34,7 @@ public record LavShardProperties(
 
     public LavShardProperties {
         integration = integration == null
-                ? new Integration(Strings.EMPTY, Set.of(), Set.of())
+                ? new Integration(Strings.EMPTY, Set.of(), Set.of(), TransactionIsolation.REPEATABLE_READ)
                 : integration;
         dataSources = dataSources == null
                 ? Map.of()
@@ -45,18 +46,26 @@ public record LavShardProperties(
 
 
     /**
-     * MyBatis 集成范围配置。
+     * MyBatis 和 JDBC 集成配置。
      *
-     * @param defaultDataSource     默认数据源 ID
-     * @param ordinaryTables        明确允许透传的普通表
-     * @param managedMapperPackages 受 LavShard 管理的 Mapper 包或 namespace
+     * @param defaultDataSource           默认数据源 ID
+     * @param ordinaryTables              明确允许透传的普通表
+     * @param managedMapperPackages       受 LavShard 管理的 Mapper 包或 namespace
+     * @param defaultTransactionIsolation 物理连接池的默认事务隔离级别
      */
     public record Integration(
             String defaultDataSource,
             Set<String> ordinaryTables,
-            Set<String> managedMapperPackages
+            Set<String> managedMapperPackages,
+            TransactionIsolation defaultTransactionIsolation
     ) {
 
+        /**
+         * 兼容原有两参数程序化构造方式。
+         *
+         * @param defaultDataSource 默认数据源 ID
+         * @param ordinaryTables    普通表集合
+         */
         public Integration(
                 String defaultDataSource,
                 Set<String> ordinaryTables
@@ -64,7 +73,21 @@ public record LavShardProperties(
             this(
                     defaultDataSource,
                     ordinaryTables,
-                    Set.of()
+                    Set.of(),
+                    TransactionIsolation.REPEATABLE_READ
+            );
+        }
+
+        public Integration(
+                String defaultDataSource,
+                Set<String> ordinaryTables,
+                Set<String> managedMapperPackages
+        ) {
+            this(
+                    defaultDataSource,
+                    ordinaryTables,
+                    managedMapperPackages,
+                    TransactionIsolation.REPEATABLE_READ
             );
         }
 
@@ -80,6 +103,35 @@ public record LavShardProperties(
             managedMapperPackages = managedMapperPackages == null
                     ? Set.of()
                     : Set.copyOf(managedMapperPackages);
+            defaultTransactionIsolation = Objects.requireNonNullElse(defaultTransactionIsolation, TransactionIsolation.REPEATABLE_READ);
+        }
+    }
+
+    /**
+     * 可由 Starter 配置的 JDBC 事务隔离级别。
+     *
+     * <p>配置层使用可读枚举，运行时快照保存 JDBC 常量，避免路由热路径
+     * 重复解析字符串。</p>
+     */
+    public enum TransactionIsolation {
+        READ_UNCOMMITTED(Connection.TRANSACTION_READ_UNCOMMITTED),
+        READ_COMMITTED(Connection.TRANSACTION_READ_COMMITTED),
+        REPEATABLE_READ(Connection.TRANSACTION_REPEATABLE_READ),
+        SERIALIZABLE(Connection.TRANSACTION_SERIALIZABLE);
+
+        private final int jdbcLevel;
+
+        TransactionIsolation(int jdbcLevel) {
+            this.jdbcLevel = jdbcLevel;
+        }
+
+        /**
+         * 返回 JDBC Connection 使用的隔离级别常量。
+         *
+         * @return JDBC 隔离级别
+         */
+        public int jdbcLevel() {
+            return jdbcLevel;
         }
     }
 

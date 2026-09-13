@@ -36,12 +36,7 @@ import java.util.Map;
                 "org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration",
                 "org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration"
         })
-@ConditionalOnProperty(
-        prefix = "lavshard",
-        name = "enabled",
-        havingValue = "true",
-        matchIfMissing = true
-)
+@ConditionalOnProperty(prefix = "lavshard", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class LavShardDataSourceAutoConfiguration {
 
 
@@ -62,18 +57,10 @@ public class LavShardDataSourceAutoConfiguration {
     @Bean(name = "lavShardDataSource")
     @Primary
     @ConditionalOnMissingBean(LavShardRoutingDataSource.class)
-    public LavShardRoutingDataSource lavShardDataSource(
-            LavShardConfigurationSnapshot snapshot,
-            MyBatisRouteContext routeContext,
-            ConfigurableListableBeanFactory beanFactory,
-            LavShardManagedDataSourceRegistry managedRegistry
-    ) {
+    public LavShardRoutingDataSource lavShardDataSource(LavShardConfigurationSnapshot snapshot, MyBatisRouteContext routeContext, ConfigurableListableBeanFactory beanFactory, LavShardManagedDataSourceRegistry managedRegistry) {
         Map<String, DataSource> physicalDataSources = resolvePhysicalDataSources(snapshot, beanFactory, managedRegistry);
 
-        return new LavShardRoutingDataSource(
-                physicalDataSources,
-                routeContext
-        );
+        return new LavShardRoutingDataSource(physicalDataSources, routeContext, snapshot.defaultTransactionIsolation());
     }
 
     /**
@@ -91,17 +78,7 @@ public class LavShardDataSourceAutoConfiguration {
 
         Map<String, DataSource> resolved = new LinkedHashMap<>(managedRegistry.dataSources());
 
-        snapshot.dataSourceBeanNames().forEach(
-                (dataSourceId, beanName) ->
-                        resolved.put(
-                                dataSourceId,
-                                resolveDataSource(
-                                        dataSourceId,
-                                        beanName,
-                                        beanFactory
-                                )
-                        )
-        );
+        snapshot.dataSourceBeanNames().forEach((dataSourceId, beanName) -> resolved.put(dataSourceId, resolveDataSource(dataSourceId, beanName, beanFactory)));
 
         return Map.copyOf(resolved);
     }
@@ -117,25 +94,13 @@ public class LavShardDataSourceAutoConfiguration {
      */
     private static DataSource resolveDataSource(String dataSourceId, String beanName, ConfigurableListableBeanFactory beanFactory) {
         if (!beanFactory.containsBean(beanName)) {
-            throw new ConfigurationException(
-                    "Configured DataSource bean does not exist: "
-                            + "dataSourceId="
-                            + dataSourceId
-                            + ", beanName="
-                            + beanName
-            );
+            throw new ConfigurationException("Configured DataSource bean does not exist: " + "dataSourceId=" + dataSourceId + ", beanName=" + beanName);
         }
 
         try {
             return beanFactory.getBean(beanName, DataSource.class);
         } catch (BeanNotOfRequiredTypeException exception) {
-            throw new ConfigurationException(
-                    "Configured DataSource bean has incompatible type: "
-                            + "dataSourceId="
-                            + dataSourceId
-                            + ", beanName="
-                            + beanName, exception
-            );
+            throw new ConfigurationException("Configured DataSource bean has incompatible type: " + "dataSourceId=" + dataSourceId + ", beanName=" + beanName, exception);
         }
     }
 
@@ -146,8 +111,7 @@ public class LavShardDataSourceAutoConfiguration {
      * @return 托管连接池注册表
      */
     @Bean(destroyMethod = "close")
-    public LavShardManagedDataSourceRegistry
-    lavShardManagedDataSourceRegistry(LavShardConfigurationSnapshot snapshot) {
+    public LavShardManagedDataSourceRegistry lavShardManagedDataSourceRegistry(LavShardConfigurationSnapshot snapshot) {
         return new LavShardManagedDataSourceRegistry(snapshot.managedDataSources());
     }
 

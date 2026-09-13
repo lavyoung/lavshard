@@ -9,6 +9,7 @@ import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 
+import java.sql.Connection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -30,6 +31,10 @@ class LavShardConfigurationCompilerTest {
         Map<String, Object> source = Map.ofEntries(
                 Map.entry("lavshard.enabled", "true"),
                 Map.entry("lavshard.integration.default-data-source", "ds0"),
+                Map.entry(
+                        "lavshard.integration.default-transaction-isolation",
+                        "read-committed"
+                ),
                 Map.entry("lavshard.integration.ordinary-tables[0]", "sys_dict"),
                 Map.entry("lavshard.data-sources[ds0].bean-name", "orderDataSource0"),
                 Map.entry("lavshard.data-sources[ds1].bean-name", "orderDataSource1"),
@@ -66,6 +71,12 @@ class LavShardConfigurationCompilerTest {
                 )
         );
         assertThat(snapshot.defaultDataSourceId()).isEqualTo("ds0");
+        assertThat(properties.integration().defaultTransactionIsolation())
+                .isEqualTo(
+                        LavShardProperties.TransactionIsolation.READ_COMMITTED
+                );
+        assertThat(snapshot.defaultTransactionIsolation())
+                .isEqualTo(Connection.TRANSACTION_READ_COMMITTED);
         assertThat(snapshot.ordinaryTables()).containsExactly(
                 new QualifiedTableName("sys_dict")
         );
@@ -131,6 +142,26 @@ class LavShardConfigurationCompilerTest {
         assertThat(managed.maximumPoolSize()).isEqualTo(10);
         assertThat(managed.minimumIdle()).isEqualTo(10);
         assertThat(managed.connectionTimeout()).isEqualTo(30000L);
+        assertThat(snapshot.defaultTransactionIsolation())
+                .isEqualTo(Connection.TRANSACTION_REPEATABLE_READ);
+    }
+
+    @Test
+    void shouldDefaultNullProgrammaticIsolationToRepeatableRead() {
+        LavShardProperties.Integration integration =
+                new LavShardProperties.Integration(
+                        "ds0",
+                        Set.of(),
+                        Set.of(),
+                        null
+                );
+
+        assertThat(integration.defaultTransactionIsolation())
+                .isEqualTo(
+                        LavShardProperties.TransactionIsolation.REPEATABLE_READ
+                );
+        assertThat(integration.defaultTransactionIsolation().jdbcLevel())
+                .isEqualTo(Connection.TRANSACTION_REPEATABLE_READ);
     }
 
     @Test

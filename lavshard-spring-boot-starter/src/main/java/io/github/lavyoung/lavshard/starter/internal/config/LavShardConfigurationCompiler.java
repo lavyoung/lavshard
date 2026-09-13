@@ -23,6 +23,14 @@ import java.util.*;
  */
 public final class LavShardConfigurationCompiler {
 
+    /**
+     * 编译外部配置。
+     *
+     * @param properties 配置绑定模型
+     * @return 已校验的不可变运行时快照
+     * @throws NullPointerException   properties 为空时抛出
+     * @throws ConfigurationException 配置不完整或引用非法时抛出
+     */
     public LavShardConfigurationSnapshot compile(LavShardProperties properties) {
         Objects.requireNonNull(properties, "properties must not be null");
 
@@ -34,13 +42,15 @@ public final class LavShardConfigurationCompiler {
             throw new ConfigurationException("lavshard.integration.default-data-source " + "references unknown dataSourceId: " + defaultDataSourceId);
         }
 
+        int defaultTransactionIsolation = properties.integration().defaultTransactionIsolation().jdbcLevel();
+
         Set<QualifiedTableName> ordinaryTables = compileOrdinaryTables(properties.integration().ordinaryTables());
 
         List<TableRule> rules = compileRules(properties.tables(), dataSources.dataSourceIds());
 
         rejectManagedOrdinaryOverlap(rules, ordinaryTables);
 
-        return new LavShardConfigurationSnapshot(dataSources.beanNames(), dataSources.managedDataSources(), defaultDataSourceId, ordinaryTables, new RuleSnapshot(rules));
+        return new LavShardConfigurationSnapshot(dataSources.beanNames(), dataSources.managedDataSources(), defaultDataSourceId, defaultTransactionIsolation, ordinaryTables, new RuleSnapshot(rules));
     }
 
     private static CompiledDataSources compileDataSources(Map<String, LavShardProperties.DataSourceReference> sources) {

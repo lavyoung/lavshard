@@ -1,6 +1,7 @@
 lavshard:
   integration:
     default-data-source: ds0
+    default-transaction-isolation: read-committed
     ordinary-tables:
       - sys_dict
     managed-mapper-packages:

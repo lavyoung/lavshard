@@ -254,6 +254,80 @@ class LavShardDataSourceAutoConfigurationTest {
     }
 
     @Test
+    void shouldUseMySqlDefaultIsolationWithoutOpeningPhysicalConnection()
+            throws SQLException {
+        contextRunner
+                .withUserConfiguration(PhysicalDataSourcesConfiguration.class)
+                .withPropertyValues(validProperties("test_identity"))
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    DataSource physical = context.getBean(
+                            "orderDataSource0",
+                            DataSource.class
+                    );
+                    Connection logical = context.getBean(
+                            LavShardRoutingDataSource.class
+                    ).getConnection();
+
+                    assertThat(logical.getTransactionIsolation())
+                            .isEqualTo(
+                                    Connection.TRANSACTION_REPEATABLE_READ
+                            );
+                    verify(physical, never()).getConnection();
+                });
+    }
+
+    @Test
+    void shouldApplyConfiguredDefaultIsolationWithoutOpeningPhysicalConnection()
+            throws SQLException {
+        contextRunner
+                .withUserConfiguration(PhysicalDataSourcesConfiguration.class)
+                .withPropertyValues(validProperties("test_identity"))
+                .withPropertyValues(
+                        "lavshard.integration.default-transaction-isolation="
+                                + "read-committed"
+                )
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    DataSource physical = context.getBean(
+                            "orderDataSource0",
+                            DataSource.class
+                    );
+                    Connection logical = context.getBean(
+                            LavShardRoutingDataSource.class
+                    ).getConnection("app", "secret");
+
+                    assertThat(logical.getTransactionIsolation())
+                            .isEqualTo(
+                                    Connection.TRANSACTION_READ_COMMITTED
+                            );
+                    verify(physical, never()).getConnection(
+                            "app",
+                            "secret"
+                    );
+                });
+    }
+
+    @Test
+    void shouldRejectUnknownConfiguredTransactionIsolation() {
+        contextRunner
+                .withUserConfiguration(PhysicalDataSourcesConfiguration.class)
+                .withPropertyValues(validProperties("test_identity"))
+                .withPropertyValues(
+                        "lavshard.integration.default-transaction-isolation="
+                                + "dirty-magic"
+                )
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .rootCause()
+                            .hasMessageContaining(
+                                    "dirty-magic"
+                            );
+                });
+    }
+
+    @Test
     void shouldCreateAndRouteToManagedHikariAlongsideReferencedDataSource()
             throws SQLException {
         AtomicReference<HikariDataSource> managedPool =
