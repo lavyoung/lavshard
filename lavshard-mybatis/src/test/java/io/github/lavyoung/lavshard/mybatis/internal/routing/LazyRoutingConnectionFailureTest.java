@@ -187,6 +187,57 @@ class LazyRoutingConnectionFailureTest {
         assertThat(physical.statementAttempts).isEqualTo(1);
     }
 
+    @Test
+    void shouldRejectInvalidIsolationWithoutAcquiringPhysicalConnection() {
+        // Given
+        AtomicInteger acquisitions = new AtomicInteger();
+        Connection logical = LazyRoutingConnection.create(() -> {
+            acquisitions.incrementAndGet();
+            return new PhysicalProbe().connection();
+        });
+
+        // When / Then
+        assertThatThrownBy(() -> logical.setTransactionIsolation(999))
+                .isInstanceOf(SQLException.class)
+                .hasMessage("Unsupported transaction isolation level: 999");
+        assertThat(acquisitions).hasValue(0);
+    }
+
+    @Test
+    void shouldRejectInvalidExplicitDefaultBeforeConnectionFactoryIsUsed() {
+        // Given
+        AtomicInteger acquisitions = new AtomicInteger();
+
+        // When / Then
+        assertThatThrownBy(() -> LazyRoutingConnection.create(() -> {
+            acquisitions.incrementAndGet();
+            return new PhysicalProbe().connection();
+        }, 999)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Unsupported transaction isolation level: 999");
+        assertThat(acquisitions).hasValue(0);
+    }
+
+    @Test
+    void shouldPreserveIsolationStateWhenInitializedDriverRejectsChange()
+            throws SQLException {
+        // Given
+        PhysicalProbe physical = new PhysicalProbe();
+        Connection logical = LazyRoutingConnection.create(
+                physical::connection,
+                Connection.TRANSACTION_READ_COMMITTED
+        );
+        logical.createStatement();
+        physical.failProperty = "setTransactionIsolation";
+        physical.propertyFailure = new SQLException("unsupported isolation");
+
+        // When / Then
+        assertThatThrownBy(() -> logical.setTransactionIsolation(
+                Connection.TRANSACTION_SERIALIZABLE
+        )).isSameAs(physical.propertyFailure);
+        assertThat(logical.getTransactionIsolation())
+                .isEqualTo(Connection.TRANSACTION_READ_COMMITTED);
+    }
+
     private static Stream<String> properties() {
         return Stream.of(
                 "setReadOnly",
@@ -252,18 +303,28 @@ class LazyRoutingConnectionFailureTest {
         private int abortAttempts;
         private int statementAttempts;
         private boolean closed;
+        private int currentIsolation = Connection.TRANSACTION_READ_COMMITTED;
         private final List<String> properties = new ArrayList<>();
 
         private Connection connection() {
             return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(),
                     new Class<?>[]{Connection.class}, (proxy, method, arguments) -> {
                         switch (method.getName()) {
-                            case "setReadOnly", "setTransactionIsolation", "setAutoCommit":
+                            case "setReadOnly", "setAutoCommit":
                                 properties.add(method.getName() + "=" + arguments[0]);
                                 if (method.getName().equals(failProperty)) {
                                     throw propertyFailure;
                                 }
                                 return null;
+                            case "setTransactionIsolation":
+                                properties.add(method.getName() + "=" + arguments[0]);
+                                if (method.getName().equals(failProperty)) {
+                                    throw propertyFailure;
+                                }
+                                currentIsolation = (Integer) arguments[0];
+                                return null;
+                            case "getTransactionIsolation":
+                                return currentIsolation;
                             case "createStatement":
                                 statementAttempts++;
                                 return null; // Only initialization and invocation counting are in scope.

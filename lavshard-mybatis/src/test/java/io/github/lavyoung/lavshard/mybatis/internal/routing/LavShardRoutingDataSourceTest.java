@@ -308,7 +308,7 @@ class LavShardRoutingDataSourceTest {
 
         // When: Spring reads the previous isolation level before a Mapper routes SQL.
         assertThat(connection.getTransactionIsolation())
-                .isEqualTo(Connection.TRANSACTION_READ_COMMITTED);
+                .isEqualTo(Connection.TRANSACTION_REPEATABLE_READ);
         connection.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
 
         // Then: logical state is visible without selecting a physical data source.
@@ -367,7 +367,62 @@ class LavShardRoutingDataSourceTest {
         assertThat(serializable.getTransactionIsolation())
                 .isEqualTo(Connection.TRANSACTION_SERIALIZABLE);
         assertThat(defaultIsolation.getTransactionIsolation())
+                .isEqualTo(Connection.TRANSACTION_REPEATABLE_READ);
+        assertThat(ds0.connectionAttempts()).isZero();
+    }
+
+    @Test
+    void shouldUseExplicitDefaultTransactionIsolationWithoutPhysicalConnection()
+            throws SQLException {
+        // Given
+        TrackingDataSource ds0 = new TrackingDataSource("ds0");
+        DataSource routing = new LavShardRoutingDataSource(
+                Map.of("ds0", ds0),
+                routeContext,
+                Connection.TRANSACTION_READ_COMMITTED
+        );
+
+        // When
+        Connection connection = routing.getConnection();
+
+        // Then
+        assertThat(connection.getTransactionIsolation())
                 .isEqualTo(Connection.TRANSACTION_READ_COMMITTED);
+        assertThat(ds0.connectionAttempts()).isZero();
+    }
+
+    @Test
+    void shouldApplyExplicitDefaultToCredentialConnection()
+            throws SQLException {
+        // Given
+        TrackingDataSource ds0 = new TrackingDataSource("ds0");
+        DataSource routing = new LavShardRoutingDataSource(
+                Map.of("ds0", ds0),
+                routeContext,
+                Connection.TRANSACTION_SERIALIZABLE
+        );
+
+        // When
+        Connection connection = routing.getConnection("app", "secret");
+
+        // Then
+        assertThat(connection.getTransactionIsolation())
+                .isEqualTo(Connection.TRANSACTION_SERIALIZABLE);
+        assertThat(ds0.connectionAttempts()).isZero();
+    }
+
+    @Test
+    void shouldRejectInvalidDefaultTransactionIsolationAtConstruction() {
+        // Given
+        TrackingDataSource ds0 = new TrackingDataSource("ds0");
+
+        // When / Then
+        assertThatThrownBy(() -> new LavShardRoutingDataSource(
+                Map.of("ds0", ds0),
+                routeContext,
+                999
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Unsupported transaction isolation level: 999");
         assertThat(ds0.connectionAttempts()).isZero();
     }
 

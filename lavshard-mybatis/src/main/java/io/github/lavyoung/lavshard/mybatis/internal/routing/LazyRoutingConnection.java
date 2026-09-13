@@ -32,11 +32,11 @@ import java.util.concurrent.Executor;
 final class LazyRoutingConnection implements InvocationHandler {
 
     /**
-     * LavShard v0.1 首要数据库为 MySQL，其默认事务隔离级别为
-     * READ_COMMITTED。逻辑连接尚未选择物理库时使用该值向 Spring
-     * 提供可恢复的事务隔离级别快照。
+     * MySQL 默认事务隔离级别。
+     *
+     * <p>调用方可以通过重载的 create 方法覆盖该值，以适配显式修改过默认隔离级别的连接池。</p>
      */
-    private static final int DEFAULT_TRANSACTION_ISOLATION = Connection.TRANSACTION_READ_COMMITTED;
+    private static final int DEFAULT_TRANSACTION_ISOLATION = Connection.TRANSACTION_REPEATABLE_READ;
 
     private final PhysicalConnectionFactory connectionFactory;
     private final List<LogicalSavepoint> savepoints = new ArrayList<>();
@@ -53,22 +53,34 @@ final class LazyRoutingConnection implements InvocationHandler {
     private boolean readOnly;
     private boolean readOnlyConfigured;
 
-    private int transactionIsolation = DEFAULT_TRANSACTION_ISOLATION;
+    private int transactionIsolation;
     private boolean transactionIsolationConfigured;
 
-    private LazyRoutingConnection(PhysicalConnectionFactory connectionFactory) {
+    private LazyRoutingConnection(PhysicalConnectionFactory connectionFactory, int defaultTransactionIsolation) {
         this.connectionFactory = Objects.requireNonNull(connectionFactory, "connectionFactory must not be null");
+        this.transactionIsolation = validateDefaultTransactionIsolation(defaultTransactionIsolation);
     }
 
     /**
-     * 创建延迟 Connection 代理。
+     * 使用 MySQL 默认事务隔离级别创建延迟连接。
      *
      * @param connectionFactory 物理连接工厂
      * @return 尚未初始化物理连接的逻辑 Connection
      */
     static Connection create(PhysicalConnectionFactory connectionFactory) {
-        LazyRoutingConnection handler = new LazyRoutingConnection(connectionFactory);
+        return create(connectionFactory, DEFAULT_TRANSACTION_ISOLATION);
+    }
 
+    /**
+     * 使用显式默认事务隔离级别创建延迟连接。
+     *
+     * @param connectionFactory           物理连接工厂
+     * @param defaultTransactionIsolation 物理连接池的默认事务隔离级别
+     * @return 尚未初始化物理连接的逻辑 Connection
+     * @throws IllegalArgumentException 默认隔离级别不是 JDBC 标准事务级别时抛出
+     */
+    static Connection create(PhysicalConnectionFactory connectionFactory, int defaultTransactionIsolation) {
+        LazyRoutingConnection handler = new LazyRoutingConnection(connectionFactory, defaultTransactionIsolation);
         return (Connection) Proxy.newProxyInstance(LazyRoutingConnection.class.getClassLoader(), new Class<?>[]{Connection.class}, handler);
     }
 
@@ -434,13 +446,42 @@ final class LazyRoutingConnection implements InvocationHandler {
      */
     private synchronized void setTransactionIsolation(int requestedTransactionIsolation) throws SQLException {
         ensureOpen();
-
+        validateRequestedTransactionIsolation(requestedTransactionIsolation);
         if (physicalConnection != null) {
             physicalConnection.setTransactionIsolation(requestedTransactionIsolation);
         }
 
         transactionIsolation = requestedTransactionIsolation;
         transactionIsolationConfigured = true;
+    }
+
+    /**
+     * 校验逻辑连接的初始事务隔离级别。
+     *
+     * @param transactionIsolation 待校验级别
+     * @return 校验通过的原值
+     * @throws IllegalArgumentException 不是 JDBC 标准事务级别时抛出
+     */
+    static int validateDefaultTransactionIsolation(int transactionIsolation) {
+        if (!isSupportedTransactionIsolation(transactionIsolation)) {
+            throw new IllegalArgumentException("Unsupported transaction isolation level: " + transactionIsolation);
+        }
+
+        return transactionIsolation;
+    }
+
+    private static void validateRequestedTransactionIsolation(int transactionIsolation) throws SQLException {
+        if (!isSupportedTransactionIsolation(transactionIsolation)) {
+            throw new SQLException("Unsupported transaction isolation level: " + transactionIsolation);
+        }
+    }
+
+    private static boolean isSupportedTransactionIsolation(int transactionIsolation) {
+        return switch (transactionIsolation) {
+            case Connection.TRANSACTION_READ_UNCOMMITTED, Connection.TRANSACTION_READ_COMMITTED,
+                 Connection.TRANSACTION_REPEATABLE_READ, Connection.TRANSACTION_SERIALIZABLE -> true;
+            default -> false;
+        };
     }
 
     /**

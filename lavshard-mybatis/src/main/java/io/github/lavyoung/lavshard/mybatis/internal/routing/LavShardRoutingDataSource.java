@@ -34,28 +34,53 @@ public class LavShardRoutingDataSource implements DataSource {
     private final Map<String, DataSource> dataSources;
 
     private final MyBatisRouteContext routeContext;
+    private final int defaultTransactionIsolation;
 
     private volatile PrintWriter logWriter;
     private volatile int loginTimeout;
 
+    /**
+     * 使用 MySQL 默认事务隔离级别创建路由数据源。
+     *
+     * @param dataSources  物理数据源注册表
+     * @param routeContext MyBatis 路由上下文
+     */
     public LavShardRoutingDataSource(Map<String, DataSource> dataSources, MyBatisRouteContext routeContext) {
+        this(dataSources, routeContext, Connection.TRANSACTION_REPEATABLE_READ);
+    }
+
+    /**
+     * 使用显式默认事务隔离级别创建路由数据源。
+     *
+     * <p>该值必须与物理连接池实际配置的默认隔离级别一致。Spring 在
+     * 物理分片尚未确定时使用它保存事务开始前的隔离级别。</p>
+     *
+     * @param dataSources                 物理数据源注册表
+     * @param routeContext                MyBatis 路由上下文
+     * @param defaultTransactionIsolation 物理连接池默认隔离级别
+     * @throws IllegalArgumentException 注册表为空、内容非法或隔离级别非法时抛出
+     */
+    public LavShardRoutingDataSource(Map<String, DataSource> dataSources, MyBatisRouteContext routeContext, int defaultTransactionIsolation) {
         Objects.requireNonNull(dataSources, "dataSources must not be null");
         this.routeContext = Objects.requireNonNull(routeContext, "routeContext must not be null");
+        this.defaultTransactionIsolation = LazyRoutingConnection.validateDefaultTransactionIsolation(defaultTransactionIsolation);
+
         if (dataSources.isEmpty()) {
             throw new IllegalArgumentException("dataSources must not be empty");
         }
+
         dataSources.forEach(LavShardRoutingDataSource::validateDataSourceEntry);
         this.dataSources = Map.copyOf(dataSources);
     }
 
     @Override
     public Connection getConnection() throws SQLException {
-        return LazyRoutingConnection.create(this::obtainPyhsicalConnection);
+        return LazyRoutingConnection.create(this::obtainPyhsicalConnection, defaultTransactionIsolation);
     }
 
     @Override
     public Connection getConnection(String username, String password) throws SQLException {
-        return LazyRoutingConnection.create(() -> obtainPyhsicalConnection(username, password));
+        return LazyRoutingConnection.create(() -> obtainPyhsicalConnection(username, password), defaultTransactionIsolation);
     }
 
     /**
