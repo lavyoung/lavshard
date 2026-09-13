@@ -2,6 +2,7 @@ package io.github.lavyoung.lavshard.core.internal.route;
 
 import io.github.lavyoung.lavshard.core.api.route.ManagedRouteDecision;
 import io.github.lavyoung.lavshard.core.api.route.PassThroughDecision;
+import io.github.lavyoung.lavshard.core.api.route.RoutePlan;
 import io.github.lavyoung.lavshard.core.api.route.SqlRouteDecision;
 import io.github.lavyoung.lavshard.core.api.rule.RuleSnapshot;
 import io.github.lavyoung.lavshard.core.api.topology.QualifiedTableName;
@@ -17,7 +18,7 @@ import java.util.Set;
  * SQL 分类与分片路由的统一决策入口。
  *
  * <p>该引擎首先判断 SQL 是否属于 LavShard 管理范围，并将分类器
- * 识别出的事务要求传播到最终路由决策。</p>
+ * 识别出的逻辑表身份和事务要求传播到最终路由决策。</p>
  *
  * <p>该类只负责流程编排，不执行数据库操作。</p>
  *
@@ -59,6 +60,10 @@ public final class SqlRouteEngine {
     /**
      * 对 SQL 进行分类并生成最终路由决策。
      *
+     * <p>受管 SQL 的分类结果按照 v0.1 契约只包含一张逻辑表。
+     * 该逻辑表身份必须进入 ManagedRouteDecision，供事务守卫按表
+     * 固定规则和拓扑版本。</p>
+     *
      * @param snapshot   当前不可变规则快照
      * @param sql        原始逻辑 SQL
      * @param parameters JDBC 参数列表
@@ -73,11 +78,27 @@ public final class SqlRouteEngine {
         SqlClassification classification = classifier.classify(snapshot, sql);
 
         return switch (classification.type()) {
-            case MANAGED ->
-                    new ManagedRouteDecision(routePlanner.plan(snapshot, sql, parameters), classification.transactionRequirement());
+            case MANAGED -> managedDecision(snapshot, sql, parameters, classification);
 
             case PASSTHROUGH ->
                     new PassThroughDecision(defaultDataSourceId, sql, classification.transactionRequirement());
         };
+    }
+
+    /**
+     * 创建包含真实逻辑表身份的受管路由决策。
+     *
+     * @param snapshot       当前规则快照
+     * @param sql            原始逻辑 SQL
+     * @param parameters     JDBC 参数列表
+     * @param classification 受管 SQL 分类结果
+     * @return 完整受管路由决策
+     */
+    private ManagedRouteDecision managedDecision(RuleSnapshot snapshot, String sql, List<?> parameters, SqlClassification classification) {
+        QualifiedTableName logicalTable = classification.tables().get(0);
+
+        RoutePlan routePlan = routePlanner.plan(snapshot, sql, parameters);
+
+        return new ManagedRouteDecision(routePlan, logicalTable, classification.transactionRequirement());
     }
 }
