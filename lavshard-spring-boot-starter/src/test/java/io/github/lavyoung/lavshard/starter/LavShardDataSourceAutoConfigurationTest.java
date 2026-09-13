@@ -198,8 +198,10 @@ class LavShardDataSourceAutoConfigurationTest {
                 .run(context -> {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure())
-                            .hasRootCauseInstanceOf(ConfigurationException.class)
-                            .hasRootCauseMessage(
+                            .cause()
+                            .cause()
+                            .isInstanceOf(ConfigurationException.class)
+                            .hasMessage(
                                     "Configured DataSource bean has incompatible "
                                             + "type: dataSourceId=ds1, "
                                             + "beanName=orderDataSource1"

@@ -29,7 +29,11 @@ import java.util.Map;
  * @version 0.1.0
  * @date 2026/09/12
  */
-@AutoConfiguration(after = LavShardAutoConfiguration.class)
+@AutoConfiguration(after = LavShardAutoConfiguration.class,
+        beforeName = {
+                "org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration",
+                "org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration"
+        })
 @ConditionalOnProperty(
         prefix = "lavshard",
         name = "enabled",
