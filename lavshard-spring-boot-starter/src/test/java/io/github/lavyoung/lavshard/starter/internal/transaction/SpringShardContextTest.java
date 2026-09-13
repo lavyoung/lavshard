@@ -12,8 +12,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.util.List;
 
-import static org.assertj.core.api.Assertions.assertThatCode;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.*;
 
 /**
  * Spring 本地事务路由绑定契约。
@@ -137,6 +136,40 @@ class SpringShardContextTest {
                 .setActualTransactionActive(true);
         TransactionSynchronizationManager
                 .initSynchronization();
+    }
+
+    @Test
+    void shouldSuspendResourceAndResumeOriginalVersionBinding() {
+        // Given: capture the exact binding, not only its dataSourceId.
+        beginTransaction();
+        context.validate(managed("ds0", "rule-v1", "topology-v1"));
+        var originalResources = TransactionSynchronizationManager.getResourceMap();
+        var synchronization = TransactionSynchronizationManager.getSynchronizations().get(0);
+
+        // When / Then: suspend removes only this context's resource.
+        Object unrelatedKey = new Object();
+        Object unrelatedValue = new Object();
+        TransactionSynchronizationManager.bindResource(unrelatedKey, unrelatedValue);
+        try {
+            synchronization.suspend();
+            try {
+                assertThat(TransactionSynchronizationManager.getResourceMap())
+                        .containsOnlyKeys(unrelatedKey);
+            } finally {
+                synchronization.resume();
+            }
+            originalResources.forEach((key, value) ->
+                    assertThat(TransactionSynchronizationManager.getResource(key)).isSameAs(value));
+            assertThat(TransactionSynchronizationManager.getResource(unrelatedKey)).isSameAs(unrelatedValue);
+            assertThatCode(() -> context.validate(managed("ds0", "rule-v1", "topology-v1")))
+                    .doesNotThrowAnyException();
+            assertThatThrownBy(() -> context.validate(managed("ds0", "rule-v2", "topology-v1")))
+                    .isInstanceOf(CrossShardTransactionException.class);
+            assertThatThrownBy(() -> context.validate(managed("ds0", "rule-v1", "topology-v2")))
+                    .isInstanceOf(CrossShardTransactionException.class);
+        } finally {
+            TransactionSynchronizationManager.unbindResourceIfPossible(unrelatedKey);
+        }
     }
 
     private static void completeTransaction() {

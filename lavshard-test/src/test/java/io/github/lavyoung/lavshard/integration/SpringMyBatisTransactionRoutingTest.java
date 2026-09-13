@@ -23,6 +23,7 @@ import org.apache.ibatis.session.Configuration;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.apache.ibatis.session.SqlSessionFactoryBuilder;
 import org.h2.jdbcx.JdbcDataSource;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.MyBatisSystemException;
@@ -32,6 +33,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.AbstractDataSource;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.LazyConnectionDataSourceProxy;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import javax.sql.DataSource;
@@ -66,6 +69,8 @@ class SpringMyBatisTransactionRoutingTest {
     private JdbcTemplate jdbc0;
     private JdbcTemplate jdbc1;
     private TransactionTemplate transactionTemplate;
+    private DataSourceTransactionManager transactionManager;
+    private MyBatisRouteContext routeContext;
     private OrderMapper mapper;
     private String ds0UserId;
     private String ds1UserId;
@@ -81,7 +86,7 @@ class SpringMyBatisTransactionRoutingTest {
 
         SpringShardContext springShardContext =
                 new SpringShardContext();
-        MyBatisRouteContext routeContext =
+        routeContext =
                 new MyBatisRouteContext(
                         springShardContext::validate
                 );
@@ -95,11 +100,8 @@ class SpringMyBatisTransactionRoutingTest {
                         routingDataSource
                 );
 
-        transactionTemplate = new TransactionTemplate(
-                new DataSourceTransactionManager(
-                        transactionDataSource
-                )
-        );
+        transactionManager = new DataSourceTransactionManager(transactionDataSource);
+        transactionTemplate = new TransactionTemplate(transactionManager);
         mapper = mapper(
                 transactionDataSource,
                 routeContext
@@ -116,6 +118,203 @@ class SpringMyBatisTransactionRoutingTest {
 
         assertThat(countOrders(jdbc0)).isEqualTo(1);
         assertThat(countOrders(jdbc1)).isZero();
+    }
+
+    @AfterEach
+    void shouldReleaseAllTransactionAndRoutingResources() {
+        assertThat(routeContext.currentDecision()).isEmpty();
+        assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+        assertThat(TransactionSynchronizationManager.isSynchronizationActive()).isFalse();
+        assertThat(TransactionSynchronizationManager.getResourceMap()).isEmpty();
+    }
+
+    @Test
+    void shouldCommitRequiresNewOnAnotherShardAndResumeOuterConnection() {
+        // Given
+        TransactionTemplate inner = propagation(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        int before0 = ds0.connectionAttempts();
+        int before1 = ds1.connectionAttempts();
+
+        // When
+        transactionTemplate.executeWithoutResult(outer -> {
+            mapper.insert(ds0UserId, "outer-before");
+            inner.executeWithoutResult(status -> mapper.insert(ds1UserId, "inner"));
+            mapper.insert(ds0UserId, "outer-after");
+        });
+
+        // Then: the outer physical connection is resumed, not reopened.
+        assertThat(ds0.connectionAttempts() - before0).isEqualTo(1);
+        assertThat(ds1.connectionAttempts() - before1).isEqualTo(1);
+        assertThat(countOrders(jdbc0)).isEqualTo(2);
+        assertThat(countOrders(jdbc1)).isEqualTo(1);
+    }
+
+    @Test
+    void shouldKeepRequiresNewCommitWhenOuterRollsBack() {
+        // Given
+        TransactionTemplate inner = propagation(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        // When
+        transactionTemplate.executeWithoutResult(outer -> {
+            mapper.insert(ds0UserId, "outer-rollback");
+            inner.executeWithoutResult(status -> mapper.insert(ds1UserId, "inner-commit"));
+            outer.setRollbackOnly();
+        });
+
+        // Then
+        assertThat(countOrders(jdbc0)).isZero();
+        assertThat(countOrders(jdbc1)).isEqualTo(1);
+    }
+
+    @Test
+    void shouldResumeOuterAfterRequiresNewDatabaseFailure() {
+        // Given
+        TransactionTemplate inner = propagation(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        // When
+        transactionTemplate.executeWithoutResult(outer -> {
+            mapper.insert(ds0UserId, "outer-before");
+            assertThatThrownBy(() -> inner.executeWithoutResult(status -> {
+                mapper.insert(ds1UserId, "inner-rollback");
+                mapper.insert(ds1UserId, null); // NOT NULL violation after a successful write.
+            })).hasRootCauseInstanceOf(SQLException.class);
+            mapper.insert(ds0UserId, "outer-after");
+        });
+
+        // Then
+        assertThat(countOrders(jdbc0)).isEqualTo(2);
+        assertThat(countOrders(jdbc1)).isZero();
+    }
+
+    @Test
+    void shouldRestoreOuterGuardAfterSameShardRequiresNew() {
+        // Given
+        TransactionTemplate inner = propagation(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        int before1 = ds1.connectionAttempts();
+
+        // When
+        transactionTemplate.executeWithoutResult(outer -> {
+            mapper.insert(ds0UserId, "outer-before");
+            inner.executeWithoutResult(status -> mapper.insert(ds0UserId, "inner"));
+            assertThatThrownBy(() -> mapper.insert(ds1UserId, "must-reject"))
+                    .hasRootCauseInstanceOf(CrossShardTransactionException.class);
+            mapper.insert(ds0UserId, "outer-after");
+        });
+
+        // Then
+        assertThat(ds1.connectionAttempts()).isEqualTo(before1);
+        assertThat(countOrders(jdbc0)).isEqualTo(3);
+        assertThat(countOrders(jdbc1)).isZero();
+    }
+
+    @Test
+    void shouldResumeThreeLevelsOfIndependentTransactions() {
+        // Given
+        TransactionTemplate inner = propagation(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        int before0 = ds0.connectionAttempts();
+        int before1 = ds1.connectionAttempts();
+
+        // When
+        transactionTemplate.executeWithoutResult(outer -> {
+            mapper.insert(ds0UserId, "level-one");
+            inner.executeWithoutResult(middle -> {
+                mapper.insert(ds1UserId, "level-two-before");
+                inner.executeWithoutResult(deepest -> mapper.insert(ds0UserId, "level-three"));
+                mapper.insert(ds1UserId, "level-two-after");
+            });
+            mapper.insert(ds0UserId, "level-one-after");
+        });
+
+        // Then
+        assertThat(ds0.connectionAttempts() - before0).isEqualTo(2);
+        assertThat(ds1.connectionAttempts() - before1).isEqualTo(1);
+        assertThat(countOrders(jdbc0)).isEqualTo(3);
+        assertThat(countOrders(jdbc1)).isEqualTo(2);
+    }
+
+    @Test
+    void shouldKeepOuterUnboundWhenRequiresNewRunsBeforeFirstOuterSql() {
+        // Given
+        TransactionTemplate inner = propagation(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        // When
+        transactionTemplate.executeWithoutResult(outer -> {
+            inner.executeWithoutResult(status -> mapper.insert(ds1UserId, "inner-first"));
+            mapper.insert(ds0UserId, "outer-first");
+        });
+
+        // Then
+        assertThat(countOrders(jdbc0)).isEqualTo(1);
+        assertThat(countOrders(jdbc1)).isEqualTo(1);
+    }
+
+    @Test
+    void shouldAllowPassThroughInRequiresNewAndRestoreOuterGuard() {
+        // Given: ordinary tables use ds1; the outer transaction uses ds0.
+        TransactionTemplate inner = propagation(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        // When
+        transactionTemplate.executeWithoutResult(outer -> {
+            mapper.insert(ds0UserId, "outer");
+            inner.executeWithoutResult(status -> assertThat(mapper.countAuditRows()).isZero());
+            assertThatThrownBy(() -> mapper.countAuditRows())
+                    .hasRootCauseInstanceOf(CrossShardTransactionException.class);
+        });
+
+        // Then
+        assertThat(countOrders(jdbc0)).isEqualTo(1);
+    }
+
+    @Test
+    void shouldAllowNonTransactionalWriteAndRestoreSuspendedGuard() {
+        // Given
+        TransactionTemplate nonTransactional = propagation(TransactionDefinition.PROPAGATION_NOT_SUPPORTED);
+
+        // When
+        transactionTemplate.executeWithoutResult(outer -> {
+            mapper.insert(ds0UserId, "outer-rollback");
+            nonTransactional.executeWithoutResult(status -> {
+                assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
+                mapper.insert(ds1UserId, "non-transactional-commit");
+            });
+            assertThatThrownBy(() -> mapper.insert(ds1UserId, "must-reject"))
+                    .hasRootCauseInstanceOf(CrossShardTransactionException.class);
+            outer.setRollbackOnly();
+        });
+
+        // Then
+        assertThat(countOrders(jdbc0)).isZero();
+        assertThat(countOrders(jdbc1)).isEqualTo(1);
+    }
+
+    @Test
+    void shouldRollbackNestedSavepointWithoutReleasingShardBinding() {
+        // Given: NESTED shares the physical transaction and its route binding.
+        TransactionTemplate nested = propagation(TransactionDefinition.PROPAGATION_NESTED);
+        int before0 = ds0.connectionAttempts();
+
+        // When
+        transactionTemplate.executeWithoutResult(outer -> {
+            mapper.insert(ds0UserId, "outer-before");
+            nested.executeWithoutResult(status -> {
+                mapper.insert(ds0UserId, "savepoint-rollback");
+                status.setRollbackOnly();
+            });
+            assertThatThrownBy(() -> mapper.insert(ds1UserId, "must-reject"))
+                    .hasRootCauseInstanceOf(CrossShardTransactionException.class);
+            mapper.insert(ds0UserId, "outer-after");
+        });
+
+        // Then
+        assertThat(ds0.connectionAttempts() - before0).isEqualTo(1);
+        assertThat(countOrders(jdbc0)).isEqualTo(2);
+        assertThat(countOrders(jdbc1)).isZero();
+    }
+
+    private TransactionTemplate propagation(int behavior) {
+        TransactionTemplate template = new TransactionTemplate(transactionManager);
+        template.setPropagationBehavior(behavior);
+        return template;
     }
 
     @Test
