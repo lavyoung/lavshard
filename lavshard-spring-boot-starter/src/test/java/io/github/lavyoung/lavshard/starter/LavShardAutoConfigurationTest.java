@@ -50,6 +50,9 @@ class LavShardAutoConfigurationTest {
                     assertThat(context).hasSingleBean(LavShardProperties.class);
                     assertThat(context).hasSingleBean(LavShardConfigurationCompiler.class);
                     assertThat(context).hasSingleBean(LavShardConfigurationSnapshot.class);
+                    assertThat(context).hasSingleBean(
+                            LavShardAlgorithmConfigurationValidator.class
+                    );
                     assertThat(context).hasSingleBean(ShardAlgorithmRegistry.class);
                     assertThat(context).hasSingleBean(SqlRouteEngine.class);
                     assertThat(context).hasSingleBean(SpringShardContext.class);
@@ -185,6 +188,44 @@ class LavShardAutoConfigurationTest {
                             .hasRootCauseMessage(
                                     "lavshard.integration.default-data-source "
                                             + "references unknown dataSourceId: missing"
+                            );
+                });
+    }
+
+    @Test
+    void shouldFailStartupWhenRuleReferencesUnregisteredAlgorithm() {
+        contextRunner
+                .withPropertyValues(validProperties("missing"))
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(ConfigurationException.class)
+                            .hasRootCauseMessage(
+                                    "lavshard.tables.t_order.algorithm.name "
+                                            + "references unregistered "
+                                            + "algorithm: missing"
+                            );
+                });
+    }
+
+    @Test
+    void shouldFailStartupWhenBuiltInAlgorithmRejectsConfiguration() {
+        contextRunner
+                .withPropertyValues(validProperties("hash_mod"))
+                .withPropertyValues(
+                        "lavshard.tables[t_order].algorithm."
+                                + "hash-version=unknown"
+                )
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .cause()
+                            .cause()
+                            .isInstanceOf(ConfigurationException.class)
+                            .hasMessage(
+                                    "Invalid algorithm configuration for "
+                                            + "table t_order: unsupported "
+                                            + "hashVersion: unknown"
                             );
                 });
     }

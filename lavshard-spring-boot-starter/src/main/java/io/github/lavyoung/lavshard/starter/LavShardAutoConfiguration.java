@@ -1,6 +1,7 @@
 package io.github.lavyoung.lavshard.starter;
 
 import io.github.lavyoung.lavshard.core.api.algorithm.ShardAlgorithm;
+import io.github.lavyoung.lavshard.core.api.exception.ConfigurationException;
 import io.github.lavyoung.lavshard.core.internal.algorithm.Murmur3HashShardAlgorithm;
 import io.github.lavyoung.lavshard.core.internal.algorithm.ShardAlgorithmRegistry;
 import io.github.lavyoung.lavshard.core.internal.route.SqlRouteEngine;
@@ -15,6 +16,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Stream;
 
 /**
@@ -88,6 +90,24 @@ public class LavShardAutoConfiguration {
     }
 
     /**
+     * 创建校验器并在启动阶段校验全部规则的算法配置。
+     *
+     * @param snapshot          不可变配置快照
+     * @param algorithmRegistry 算法注册表
+     * @return 已完成校验的配置校验器
+     * @throws ConfigurationException 规则引用未知算法或算法配置不兼容时抛出
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public LavShardAlgorithmConfigurationValidator lavShardAlgorithmConfigurationValidator(LavShardConfigurationSnapshot snapshot,
+                                                                                           ShardAlgorithmRegistry algorithmRegistry) {
+        LavShardAlgorithmConfigurationValidator validator = new LavShardAlgorithmConfigurationValidator();
+        validator.validate(snapshot.ruleSnapshot(), algorithmRegistry);
+
+        return validator;
+    }
+
+    /**
      * 根据算法注册表和已编译集成配置创建 SQL 路由引擎。
      *
      * @param algorithmRegistry 算法注册表
@@ -97,7 +117,12 @@ public class LavShardAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public SqlRouteEngine lavShardSqlRouteEngine(ShardAlgorithmRegistry algorithmRegistry,
-                                                 LavShardConfigurationSnapshot snapshot) {
+                                                 LavShardConfigurationSnapshot snapshot,
+                                                 LavShardAlgorithmConfigurationValidator validator) {
+        Objects.requireNonNull(
+                validator,
+                "configurationValidator must not be null"
+        );
         return new SqlRouteEngine(
                 algorithmRegistry,
                 snapshot.ordinaryTables(),

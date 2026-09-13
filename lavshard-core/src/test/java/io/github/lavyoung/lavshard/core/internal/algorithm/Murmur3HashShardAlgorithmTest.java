@@ -7,8 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.*;
 
 class Murmur3HashShardAlgorithmTest {
 
@@ -81,6 +80,22 @@ class Murmur3HashShardAlgorithmTest {
                 ShardValue.of("user-123"),
                 config
         ))
+                .isInstanceOf(ShardAlgorithmException.class)
+                .hasMessage("unsupported hashVersion: unknown");
+    }
+
+    @Test
+    void shouldValidateSupportedConfigurationWithoutCalculatingAValue() {
+        assertThatCode(() -> algorithm.validate(CONFIG))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    void shouldRejectUnsupportedHashVersionDuringValidation() {
+        AlgorithmConfig config =
+                new AlgorithmConfig(1024, "unknown");
+
+        assertThatThrownBy(() -> algorithm.validate(config))
                 .isInstanceOf(ShardAlgorithmException.class)
                 .hasMessage("unsupported hashVersion: unknown");
     }

@@ -69,4 +69,16 @@ public final class RuleSnapshot {
         );
         return Optional.ofNullable(rules.get(logicalTable));
     }
+
+    /**
+     * 返回当前快照中的全部分片规则。
+     *
+     * <p>返回集合不可修改，不承诺迭代顺序。该视图用于启动校验、
+     * 状态诊断和未来只读观测，不允许通过它修改规则快照。</p>
+     *
+     * @return 当前快照中的全部不可变规则
+     */
+    public Collection<TableRule> rules() {
+        return rules.values();
+    }
 }

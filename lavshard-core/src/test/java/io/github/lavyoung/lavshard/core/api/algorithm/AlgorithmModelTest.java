@@ -4,8 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.*;
 
 class AlgorithmModelTest {
 
@@ -64,5 +63,31 @@ class AlgorithmModelTest {
         returned[1] = 9;
 
         assertThat(value.value()).containsExactly(1, 2);
+    }
+
+    @Test
+    void shouldProvideBackwardCompatibleDefaultConfigurationValidation() {
+        ShardAlgorithm algorithm = new ShardAlgorithm() {
+            @Override
+            public String name() {
+                return "custom";
+            }
+
+            @Override
+            public ShardBucket calculate(
+                    ShardValue value,
+                    AlgorithmConfig config
+            ) {
+                return new ShardBucket(0);
+            }
+        };
+
+        assertThatCode(() -> algorithm.validate(
+                new AlgorithmConfig(1, "custom-v1")
+        )).doesNotThrowAnyException();
+
+        assertThatThrownBy(() -> algorithm.validate(null))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("config must not be null");
     }
 }

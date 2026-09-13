@@ -81,6 +81,25 @@ public final class Murmur3HashShardAlgorithm implements ShardAlgorithm {
     }
 
     /**
+     * 校验 Murmur3 持久化协议版本。
+     *
+     * @param config 算法配置
+     * @throws NullPointerException    config 为空时抛出
+     * @throws ShardAlgorithmException Hash 版本不受支持时抛出
+     */
+    @Override
+    public void validate(AlgorithmConfig config) {
+        Objects.requireNonNull(config, "config must not be null");
+
+        if (!HASH_VERSION.equals(config.hashVersion())) {
+            throw new ShardAlgorithmException(
+                    "unsupported hashVersion: "
+                            + config.hashVersion()
+            );
+        }
+    }
+
+    /**
      * 将类型明确的分片键稳定映射到配置范围内的逻辑桶。
      *
      * <p>执行顺序固定为：规范化输入、计算 32 位 Hash、使用 {@code floorMod} 取桶。
@@ -95,11 +114,7 @@ public final class Murmur3HashShardAlgorithm implements ShardAlgorithm {
     @Override
     public ShardBucket calculate(ShardValue value, AlgorithmConfig config) {
         Objects.requireNonNull(value, "value must not be null");
-        Objects.requireNonNull(config, "config must not be null");
-
-        if (!HASH_VERSION.equals(config.hashVersion())) {
-            throw new ShardAlgorithmException("unsupported hashVersion: " + config.hashVersion());
-        }
+        validate(config);
 
         // 第一步：把不同 Java 类型转换成带类型标记的稳定字节。
         byte[] canonicalizeValue = canonicalize(value);
