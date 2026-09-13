@@ -1,2 +1,2 @@
-io.github.lavyoung.lavshard.starter.LavShardAutoConfiguration
-io.github.lavyoung.lavshard.starter.LavShardDataSourceAutoConfiguration
+io.github.lavyoung.lavshard.starter.autoconfigure.LavShardAutoConfiguration
+io.github.lavyoung.lavshard.starter.autoconfigure.LavShardDataSourceAutoConfiguration

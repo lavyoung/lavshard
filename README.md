@@ -22,6 +22,9 @@
 
 总体设计见 [架构与演进规划](docs/design/architecture-roadmap.md)，首版边界见 [v0.1 SQL 支持矩阵](docs/design/v0.1.0/v0.1-sql-support-matrix.md)，业务建模前请阅读 [分片数据模型规范](docs/design/sharding-data-model-guidelines.md)。
 
+升级开发版本时，请查看 [MyBatis 与 Starter 包结构迁移说明](docs/design/v0.1.0/package-layout-migration.md)
+，其中记录类型迁移、内部实现边界及缓存命名空间变化。
+
 核心设计理念：
 
 - **轻量** —— 核心模块保持零 Spring、MyBatis 和连接池依赖
