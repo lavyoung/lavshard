@@ -415,6 +415,90 @@ class SpringMyBatisTransactionRoutingTest {
         assertThat(countOrders(jdbc1)).isZero();
     }
 
+    @Test
+    void shouldRollbackNestedWorkBeforeFirstOuterSql() {
+        // Given
+        TransactionTemplate nested = propagation(
+                TransactionDefinition.PROPAGATION_NESTED
+        );
+
+        // When
+        transactionTemplate.executeWithoutResult(outer -> {
+            nested.executeWithoutResult(status -> {
+                mapper.insert(ds0UserId, "nested-rollback");
+                status.setRollbackOnly();
+            });
+            mapper.insert(ds0UserId, "outer-commit");
+        });
+
+        // Then
+        assertThat(countOrders(jdbc0)).isEqualTo(1);
+        assertThat(countOrders(jdbc1)).isZero();
+    }
+
+    @Test
+    void shouldCommitNestedWorkBeforeFirstOuterSqlOnSameShard() {
+        // Given
+        TransactionTemplate nested = propagation(
+                TransactionDefinition.PROPAGATION_NESTED
+        );
+
+        // When
+        transactionTemplate.executeWithoutResult(outer -> {
+            nested.executeWithoutResult(status ->
+                    mapper.insert(ds1UserId, "nested-commit")
+            );
+            mapper.insert(ds1UserId, "outer-commit");
+        });
+
+        // Then
+        assertThat(countOrders(jdbc0)).isZero();
+        assertThat(countOrders(jdbc1)).isEqualTo(2);
+    }
+
+    @Test
+    void shouldKeepNestedFirstRouteBoundForOuterTransaction() {
+        // Given
+        TransactionTemplate nested = propagation(
+                TransactionDefinition.PROPAGATION_NESTED
+        );
+
+        // When
+        transactionTemplate.executeWithoutResult(outer -> {
+            nested.executeWithoutResult(status ->
+                    mapper.insert(ds1UserId, "nested-commit")
+            );
+            assertThatThrownBy(() ->
+                    mapper.insert(ds0UserId, "cross-shard")
+            ).hasRootCauseInstanceOf(CrossShardTransactionException.class);
+        });
+
+        // Then
+        assertThat(countOrders(jdbc0)).isZero();
+        assertThat(countOrders(jdbc1)).isEqualTo(1);
+    }
+
+    @Test
+    void shouldKeepEmptyNestedScopeFullyLazyBeforeFirstOuterSql() {
+        // Given
+        TransactionTemplate nested = propagation(
+                TransactionDefinition.PROPAGATION_NESTED
+        );
+        int before0 = ds0.connectionAttempts();
+        int before1 = ds1.connectionAttempts();
+
+        // When
+        transactionTemplate.executeWithoutResult(outer ->
+                nested.executeWithoutResult(status -> {
+                    // No SQL: savepoint creation and release stay logical.
+                })
+        );
+
+        // Then
+        assertThat(ds0.connectionAttempts()).isEqualTo(before0);
+        assertThat(ds1.connectionAttempts()).isEqualTo(before1);
+    }
+
     private TransactionTemplate propagation(int behavior) {
         TransactionTemplate template = new TransactionTemplate(transactionManager);
         template.setPropagationBehavior(behavior);

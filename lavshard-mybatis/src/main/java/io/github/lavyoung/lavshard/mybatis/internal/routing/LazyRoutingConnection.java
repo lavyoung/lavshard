@@ -5,7 +5,11 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
+import java.sql.Savepoint;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.Executor;
 
@@ -35,6 +39,9 @@ final class LazyRoutingConnection implements InvocationHandler {
     private static final int DEFAULT_TRANSACTION_ISOLATION = Connection.TRANSACTION_READ_COMMITTED;
 
     private final PhysicalConnectionFactory connectionFactory;
+    private final List<LogicalSavepoint> savepoints = new ArrayList<>();
+
+    private int savepointSequence;
 
     private Connection physicalConnection;
     private boolean closed;
@@ -97,13 +104,20 @@ final class LazyRoutingConnection implements InvocationHandler {
                 setTransactionIsolation((Integer) arguments[0]);
                 yield null;
             }
+            case "getMetaData" -> getLazyMetaData(proxy);
+            case "setSavepoint" -> createSavepoint(arguments);
+            case "releaseSavepoint" -> {
+                releaseSavepoint((Savepoint) arguments[0]);
+                yield null;
+            }
             case "commit" -> invokeIfInitialized(method, arguments);
             case "rollback" -> {
                 if (arguments == null || arguments.length == 0) {
                     yield invokeIfInitialized(method, arguments);
                 }
 
-                yield invokePhysical(method, arguments);
+                rollbackToSavepoint((Savepoint) arguments[0]);
+                yield null;
             }
             case "unwrap" -> unwrap(proxy, arguments);
             case "isWrapperFor" -> isWrapperFor(proxy, arguments);
@@ -168,12 +182,16 @@ final class LazyRoutingConnection implements InvocationHandler {
      * @throws Throwable JDBC 驱动抛出的原始异常
      */
     private static Object invokeConnection(Connection connection, Method method, Object[] arguments) throws Throwable {
+        return invokeJdbcTarget(connection, method, arguments);
+    }
+
+    private static Object invokeJdbcTarget(Object target, Method method, Object[] arguments) throws Throwable {
         try {
-            return method.invoke(connection, arguments);
+            return method.invoke(target, arguments);
         } catch (InvocationTargetException exception) {
             throw exception.getCause();
         } catch (IllegalAccessException exception) {
-            throw new SQLException("Cannot invoke Connection method: " + method.getName(), exception);
+            throw new SQLException("Cannot invoke JDBC method: " + method.getName(), exception);
         }
     }
 
@@ -201,7 +219,9 @@ final class LazyRoutingConnection implements InvocationHandler {
 
         try {
             applyDeferredProperties(acquired);
+            materializeDeferredSavepoints(acquired);
         } catch (SQLException | RuntimeException exception) {
+            resetMaterializedSavepoints();
             closeAfterInitializationFailure(acquired, exception);
             throw exception;
         }
@@ -231,6 +251,81 @@ final class LazyRoutingConnection implements InvocationHandler {
         if (autoCommitConfigured) {
             acquired.setAutoCommit(autoCommit);
         }
+    }
+
+    /**
+     * 创建延迟数据库元数据代理。
+     *
+     * <p>Spring 在创建嵌套事务保存点前会调用
+     * DatabaseMetaData.supportsSavepoints()。LavShard v0.1 的目标
+     * 数据库 MySQL 支持保存点，因此该能力查询不应提前选择分片。</p>
+     *
+     * @param connectionProxy 当前逻辑 Connection
+     * @return 延迟数据库元数据代理
+     * @throws SQLException 逻辑连接已经关闭时抛出
+     */
+    private synchronized DatabaseMetaData getLazyMetaData(Object connectionProxy) throws SQLException {
+        ensureOpen();
+
+        return (DatabaseMetaData) Proxy.newProxyInstance(LazyRoutingConnection.class.getClassLoader(), new Class<?>[]{DatabaseMetaData.class}, (proxy, method, arguments) -> invokeMetaData(connectionProxy, proxy, method, arguments));
+    }
+
+    /**
+     * 分派数据库元数据调用。
+     *
+     * @param connectionProxy 当前逻辑 Connection
+     * @param metadataProxy   逻辑 DatabaseMetaData
+     * @param method          被调用的方法
+     * @param arguments       方法参数
+     * @return 元数据方法结果
+     * @throws Throwable JDBC 驱动调用失败时抛出
+     */
+    private Object invokeMetaData(Object connectionProxy, Object metadataProxy, Method method, Object[] arguments) throws Throwable {
+        return switch (method.getName()) {
+            case "supportsSavepoints" -> {
+                ensureOpen();
+                yield true;
+            }
+            case "getConnection" -> {
+                ensureOpen();
+                yield connectionProxy;
+            }
+            case "unwrap" -> unwrapMetaData(metadataProxy, arguments);
+            case "isWrapperFor" -> isMetaDataWrapperFor(metadataProxy, arguments);
+            case "toString" -> "LazyRoutingDatabaseMetaData";
+            case "hashCode" -> System.identityHashCode(metadataProxy);
+            case "equals" -> metadataProxy == arguments[0];
+            default -> invokePhysicalMetaData(method, arguments);
+        };
+    }
+
+    private Object invokePhysicalMetaData(Method method, Object[] arguments) throws Throwable {
+        ensureOpen();
+        DatabaseMetaData metadata = physicalConnection().getMetaData();
+
+        return invokeJdbcTarget(metadata, method, arguments);
+    }
+
+    private Object unwrapMetaData(Object proxy, Object[] arguments) throws SQLException {
+        Class<?> type = wrapperType(arguments);
+
+        if (type.isInstance(proxy)) {
+            return proxy;
+        }
+
+        ensureOpen();
+        return physicalConnection().getMetaData().unwrap(type);
+    }
+
+    private boolean isMetaDataWrapperFor(Object proxy, Object[] arguments) throws SQLException {
+        Class<?> type = wrapperType(arguments);
+
+        if (type.isInstance(proxy)) {
+            return true;
+        }
+
+        ensureOpen();
+        return physicalConnection().getMetaData().isWrapperFor(type);
     }
 
     private static void closeAfterInitializationFailure(Connection acquired, Throwable originalFailure) {
@@ -466,6 +561,196 @@ final class LazyRoutingConnection implements InvocationHandler {
         }
 
         return (Class<?>) arguments[0];
+    }
+
+    /**
+     * 创建逻辑保存点。
+     *
+     * <p>物理连接尚未初始化时只记录保存点。物理连接已经存在时立即
+     * 创建对应的驱动保存点。</p>
+     *
+     * @param arguments setSavepoint 方法参数
+     * @return 属于当前逻辑连接的保存点
+     * @throws SQLException 连接关闭、名称无效或驱动创建失败时抛出
+     */
+    private synchronized Savepoint createSavepoint(Object[] arguments) throws SQLException {
+        ensureOpen();
+
+        String name = savepointName(arguments);
+        LogicalSavepoint logicalSavepoint = new LogicalSavepoint(this, ++savepointSequence, name);
+
+        if (physicalConnection != null) {
+            logicalSavepoint.materialize(physicalConnection);
+        }
+
+        savepoints.add(logicalSavepoint);
+        return logicalSavepoint;
+    }
+
+    /**
+     * 在候选物理连接上依次创建全部活动保存点。
+     *
+     * @param acquired 尚未发布的候选物理连接
+     * @throws SQLException 驱动创建保存点失败时抛出
+     */
+    private void materializeDeferredSavepoints(Connection acquired) throws SQLException {
+        for (LogicalSavepoint savepoint : savepoints) {
+            if (savepoint.isActive() && !savepoint.isMaterialized()) {
+                savepoint.materialize(acquired);
+            }
+        }
+    }
+
+    /**
+     * 清除失败候选连接产生的物理保存点引用。
+     *
+     * <p>逻辑保存点保持活动，以便下一次连接初始化时在新候选连接上
+     * 重新创建。</p>
+     */
+    private void resetMaterializedSavepoints() {
+        savepoints.stream().filter(LogicalSavepoint::isActive).forEach(LogicalSavepoint::resetMaterialization);
+    }
+
+    /**
+     * 回滚到逻辑保存点。
+     *
+     * <p>物理连接尚未创建时不存在需要回滚的数据库操作，因此保持
+     * 延迟状态。保存点继续有效，以便 Spring 随后释放它。</p>
+     *
+     * @param savepoint 当前连接创建的逻辑保存点
+     * @throws SQLException 保存点无效、连接关闭或驱动回滚失败时抛出
+     */
+    private synchronized void rollbackToSavepoint(Savepoint savepoint) throws SQLException {
+        ensureOpen();
+
+        LogicalSavepoint logicalSavepoint = requireActiveSavepoint(savepoint);
+
+        if (physicalConnection == null) {
+            return;
+        }
+
+        physicalConnection.rollback(logicalSavepoint.physicalSavepoint());
+    }
+
+    /**
+     * 释放逻辑保存点。
+     *
+     * <p>未物化的保存点只从逻辑状态移除，不得因此获取物理连接。
+     * 驱动释放失败时保存点继续保持活动，允许上层感知和处理失败。</p>
+     *
+     * @param savepoint 当前连接创建的逻辑保存点
+     * @throws SQLException 保存点无效、连接关闭或驱动释放失败时抛出
+     */
+    private synchronized void releaseSavepoint(Savepoint savepoint) throws SQLException {
+        ensureOpen();
+
+        LogicalSavepoint logicalSavepoint = requireActiveSavepoint(savepoint);
+
+        if (physicalConnection != null) {
+            physicalConnection.releaseSavepoint(logicalSavepoint.physicalSavepoint());
+        }
+
+        logicalSavepoint.release();
+        savepoints.remove(logicalSavepoint);
+    }
+
+    private LogicalSavepoint requireActiveSavepoint(Savepoint savepoint) throws SQLException {
+        if (!(savepoint instanceof LogicalSavepoint logicalSavepoint) || !logicalSavepoint.belongsTo(this)) {
+            throw new SQLException("Savepoint does not belong to this connection");
+        }
+
+        if (!logicalSavepoint.isActive()) {
+            throw new SQLException("Savepoint is no longer active");
+        }
+
+        return logicalSavepoint;
+    }
+
+    private static String savepointName(Object[] arguments) throws SQLException {
+        if (arguments == null || arguments.length == 0) {
+            return null;
+        }
+
+        if (arguments.length != 1 || !(arguments[0] instanceof String name)) {
+            throw new SQLException("Savepoint name must not be null");
+        }
+
+        return name;
+    }
+
+    /**
+     * 一个逻辑 Connection 私有的延迟保存点。
+     *
+     * <p>逻辑 ID 和名称在创建时固定；物理保存点只在目标分片确定后
+     * 写入，并可在候选连接初始化失败时清除后重新物化。</p>
+     */
+    private static final class LogicalSavepoint implements Savepoint {
+
+        private final LazyRoutingConnection owner;
+        private final int id;
+        private final String name;
+
+        private Savepoint physicalSavepoint;
+        private boolean active = true;
+
+        private LogicalSavepoint(LazyRoutingConnection owner, int id, String name) {
+            this.owner = owner;
+            this.id = id;
+            this.name = name;
+        }
+
+        @Override
+        public int getSavepointId() throws SQLException {
+            if (name != null) {
+                throw new SQLException("Named savepoint has no numeric id");
+            }
+
+            return id;
+        }
+
+        @Override
+        public String getSavepointName() throws SQLException {
+            if (name == null) {
+                throw new SQLException("Unnamed savepoint has no name");
+            }
+
+            return name;
+        }
+
+        private void materialize(Connection connection) throws SQLException {
+            Savepoint created = name == null ? connection.setSavepoint() : connection.setSavepoint(name);
+
+            physicalSavepoint = created;
+        }
+
+        private boolean belongsTo(LazyRoutingConnection connection) {
+            return owner == connection;
+        }
+
+        private boolean isMaterialized() {
+            return physicalSavepoint != null;
+        }
+
+        private Savepoint physicalSavepoint() throws SQLException {
+            if (physicalSavepoint == null) {
+                throw new SQLException("Savepoint has not been materialized");
+            }
+
+            return physicalSavepoint;
+        }
+
+        private boolean isActive() {
+            return active;
+        }
+
+        private void resetMaterialization() {
+            physicalSavepoint = null;
+        }
+
+        private void release() {
+            active = false;
+            physicalSavepoint = null;
+        }
     }
 
     /**
