@@ -55,6 +55,7 @@ public final class LavShardExecutorInterceptor implements Interceptor {
     private final MyBatisRouteContext routeContext;
     private final MyBatisMappedStatementRewriter mappedStatementRewriter;
     private final MyBatisCacheKeyAugmenter cacheKeyAugmenter;
+    private final MyBatisIntegrationScope integrationScope;
 
     /**
      * 创建 Executor 路由拦截器。
@@ -65,9 +66,24 @@ public final class LavShardExecutorInterceptor implements Interceptor {
      * @throws NullPointerException 任一参数为空时抛出
      */
     public LavShardExecutorInterceptor(SqlRouteEngine routeEngine, Supplier<RuleSnapshot> snapshotSupplier, MyBatisRouteContext routeContext) {
+        this(routeEngine, snapshotSupplier, routeContext, MyBatisIntegrationScope.all());
+    }
+
+    /**
+     * 创建具有明确 Mapper 管理范围的 Executor 路由拦截器。
+     *
+     * @param routeEngine      Core SQL 路由引擎
+     * @param snapshotSupplier 当前规则快照提供器
+     * @param routeContext     当前线程路由上下文
+     * @param integrationScope MyBatis Mapper 管理范围
+     * @throws NullPointerException 任一参数为空时抛出
+     */
+    public LavShardExecutorInterceptor(SqlRouteEngine routeEngine, Supplier<RuleSnapshot> snapshotSupplier,
+                                       MyBatisRouteContext routeContext, MyBatisIntegrationScope integrationScope) {
         this.routeEngine = Objects.requireNonNull(routeEngine, "routeEngine must not be null");
         this.snapshotSupplier = Objects.requireNonNull(snapshotSupplier, "snapshotSupplier must not be null");
         this.routeContext = Objects.requireNonNull(routeContext, "routeContext must not be null");
+        this.integrationScope = Objects.requireNonNull(integrationScope, "integrationScope must not be null");
         this.mappedStatementRewriter = new MyBatisMappedStatementRewriter();
         this.cacheKeyAugmenter = new MyBatisCacheKeyAugmenter();
     }
@@ -81,6 +97,12 @@ public final class LavShardExecutorInterceptor implements Interceptor {
      */
     @Override
     public Object intercept(Invocation invocation) throws Throwable {
+        MappedStatement mappedStatement = (MappedStatement) invocation.getArgs()[0];
+
+        if (!integrationScope.includes(mappedStatement.getId())) {
+            return invocation.proceed();
+        }
+
         rejectBatchExecutor(invocation.getTarget());
 
         String methodName = invocation.getMethod().getName();

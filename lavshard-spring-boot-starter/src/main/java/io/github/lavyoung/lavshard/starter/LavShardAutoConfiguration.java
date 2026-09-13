@@ -6,6 +6,7 @@ import io.github.lavyoung.lavshard.core.internal.algorithm.Murmur3HashShardAlgor
 import io.github.lavyoung.lavshard.core.internal.algorithm.ShardAlgorithmRegistry;
 import io.github.lavyoung.lavshard.core.internal.route.SqlRouteEngine;
 import io.github.lavyoung.lavshard.mybatis.internal.LavShardExecutorInterceptor;
+import io.github.lavyoung.lavshard.mybatis.internal.MyBatisIntegrationScope;
 import io.github.lavyoung.lavshard.mybatis.internal.MyBatisRouteContext;
 import io.github.lavyoung.lavshard.starter.support.SpringShardContext;
 import org.springframework.beans.factory.ObjectProvider;
@@ -154,6 +155,21 @@ public class LavShardAutoConfiguration {
     }
 
     /**
+     * 根据外部配置创建 MyBatis Mapper 管理范围。
+     *
+     * <p>空配置表示管理全部 Mapper，保持现有默认行为。
+     * 应用可以提供自定义 Bean 覆盖配置属性生成的范围。</p>
+     *
+     * @param properties LavShard 外部配置
+     * @return 不可变 MyBatis Mapper 管理范围
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public MyBatisIntegrationScope myBatisIntegrationScope(LavShardProperties properties) {
+        return MyBatisIntegrationScope.of(properties.integration().managedMapperPackages());
+    }
+
+    /**
      * 创建 MyBatis Executor 路由拦截器。
      *
      * <p>规则快照通过 Supplier 提供，以保持拦截器与未来动态快照
@@ -169,12 +185,14 @@ public class LavShardAutoConfiguration {
     public LavShardExecutorInterceptor lavShardExecutorInterceptor(
             SqlRouteEngine routeEngine,
             LavShardConfigurationSnapshot snapshot,
-            MyBatisRouteContext routeContext
+            MyBatisRouteContext routeContext,
+            MyBatisIntegrationScope integrationScope
     ) {
         return new LavShardExecutorInterceptor(
                 routeEngine,
                 snapshot::ruleSnapshot,
-                routeContext
+                routeContext,
+                integrationScope
         );
     }
 }

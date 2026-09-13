@@ -2,6 +2,7 @@ package io.github.lavyoung.lavshard.starter;
 
 import org.apache.logging.log4j.util.Strings;
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 import java.util.Map;
@@ -32,7 +33,7 @@ public record LavShardProperties(
 
     public LavShardProperties {
         integration = integration == null
-                ? new Integration(Strings.EMPTY, Set.of())
+                ? new Integration(Strings.EMPTY, Set.of(), Set.of())
                 : integration;
         dataSources = dataSources == null
                 ? Map.of()
@@ -46,16 +47,41 @@ public record LavShardProperties(
     /**
      * MyBatis 集成范围配置。
      *
-     * @param defaultDataSource 默认数据源 ID
-     * @param ordinaryTables    明确允许透传的普通表
+     * @param defaultDataSource     默认数据源 ID
+     * @param ordinaryTables        明确允许透传的普通表
+     * @param managedMapperPackages 受 LavShard 管理的 Mapper 包或 namespace
      */
-    public record Integration(String defaultDataSource, Set<String> ordinaryTables) {
+    public record Integration(
+            String defaultDataSource,
+            Set<String> ordinaryTables,
+            Set<String> managedMapperPackages
+    ) {
+
+        public Integration(
+                String defaultDataSource,
+                Set<String> ordinaryTables
+        ) {
+            this(
+                    defaultDataSource,
+                    ordinaryTables,
+                    Set.of()
+            );
+        }
+
+        @ConstructorBinding
         public Integration {
-            defaultDataSource = Objects.requireNonNullElse(defaultDataSource, Strings.EMPTY);
-            ordinaryTables = ordinaryTables == null ? Set.of() : Set.copyOf(ordinaryTables);
+            defaultDataSource = Objects.requireNonNullElse(
+                    defaultDataSource,
+                    Strings.EMPTY
+            );
+            ordinaryTables = ordinaryTables == null
+                    ? Set.of()
+                    : Set.copyOf(ordinaryTables);
+            managedMapperPackages = managedMapperPackages == null
+                    ? Set.of()
+                    : Set.copyOf(managedMapperPackages);
         }
     }
-
     /**
      * Spring DataSource Bean 引用。
      *

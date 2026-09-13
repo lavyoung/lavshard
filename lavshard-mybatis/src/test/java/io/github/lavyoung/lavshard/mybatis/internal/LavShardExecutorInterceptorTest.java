@@ -36,6 +36,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -364,6 +365,150 @@ class LavShardExecutorInterceptorTest {
     }
 
     @Test
+    void shouldCompletelyBypassEveryExecutorEntryOutsideManagedScope()
+            throws SQLException {
+        AtomicInteger snapshotRequests = new AtomicInteger();
+        LavShardExecutorInterceptor scopedInterceptor =
+                new LavShardExecutorInterceptor(
+                        routeEngine,
+                        () -> {
+                            snapshotRequests.incrementAndGet();
+                            return snapshot();
+                        },
+                        routeContext,
+                        MyBatisIntegrationScope.of(Set.of(
+                                "com.acme.managed.mapper"
+                        ))
+                );
+        RecordingExecutor target = new RecordingExecutor(routeContext);
+        Executor executor = (Executor) scopedInterceptor.plugin(target);
+        MappedStatement query = statement(
+                "com.acme.legacy.mapper.OrderMapper.select",
+                SqlCommandType.SELECT,
+                "SELECT * FROM t_order WHERE status = ?",
+                "status"
+        );
+        MappedStatement update = statement(
+                "com.acme.legacy.mapper.OrderMapper.update",
+                SqlCommandType.UPDATE,
+                "UPDATE t_order SET status = ?",
+                "status"
+        );
+        BoundSql logicalBoundSql = query.getBoundSql(
+                Map.of("status", "PAID")
+        );
+        CacheKey logicalCacheKey = new CacheKey(
+                new Object[]{"logical"}
+        );
+
+        executor.query(
+                query,
+                Map.of("status", "PAID"),
+                RowBounds.DEFAULT,
+                Executor.NO_RESULT_HANDLER
+        );
+        executor.query(
+                query,
+                Map.of("status", "PAID"),
+                RowBounds.DEFAULT,
+                Executor.NO_RESULT_HANDLER,
+                logicalCacheKey,
+                logicalBoundSql
+        );
+        executor.update(update, Map.of("status", "PAID"));
+        executor.queryCursor(
+                query,
+                Map.of("status", "PAID"),
+                RowBounds.DEFAULT
+        );
+
+        assertThat(snapshotRequests).hasValue(0);
+        assertThat(target.fourArgumentQueryCount).isEqualTo(1);
+        assertThat(target.sixArgumentQueryCount).isEqualTo(1);
+        assertThat(target.queryRecord.mappedStatement()).isSameAs(query);
+        assertThat(target.queryRecord.boundSql()).isSameAs(logicalBoundSql);
+        assertThat(target.queryRecord.cacheKey()).isSameAs(logicalCacheKey);
+        assertThat(target.queryRecord.decision()).isNull();
+        assertThat(target.updateRecord.mappedStatement()).isSameAs(update);
+        assertThat(target.updateRecord.boundSql().getSql())
+                .isEqualTo("UPDATE t_order SET status = ?");
+        assertThat(target.updateRecord.decision()).isNull();
+        assertThat(target.cursorRecord.mappedStatement()).isSameAs(query);
+        assertThat(target.cursorRecord.boundSql().getSql())
+                .isEqualTo("SELECT * FROM t_order WHERE status = ?");
+        assertThat(target.cursorRecord.decision()).isNull();
+        assertThat(routeContext.currentDecision()).isEmpty();
+    }
+
+    @Test
+    void shouldRouteStatementInsideManagedScope() throws SQLException {
+        LavShardExecutorInterceptor scopedInterceptor =
+                new LavShardExecutorInterceptor(
+                        routeEngine,
+                        LavShardExecutorInterceptorTest::snapshot,
+                        routeContext,
+                        MyBatisIntegrationScope.of(Set.of(
+                                "com.acme.order.mapper"
+                        ))
+                );
+        RecordingExecutor target = new RecordingExecutor(routeContext);
+        Executor executor = (Executor) scopedInterceptor.plugin(target);
+        MappedStatement managed = statement(
+                "com.acme.order.mapper.OrderMapper.selectByUserId",
+                SqlCommandType.SELECT,
+                "SELECT * FROM t_order WHERE user_id = ?",
+                "userId"
+        );
+
+        executor.query(
+                managed,
+                Map.of("userId", "user-123"),
+                RowBounds.DEFAULT,
+                Executor.NO_RESULT_HANDLER
+        );
+
+        assertThat(target.fourArgumentQueryCount).isZero();
+        assertThat(target.sixArgumentQueryCount).isEqualTo(1);
+        assertThat(target.queryRecord.boundSql().getSql())
+                .contains("t_order_00");
+        assertThat(target.queryRecord.decision())
+                .isInstanceOf(ManagedRouteDecision.class);
+    }
+
+    @Test
+    void shouldApplyBatchRejectionOnlyInsideManagedScope() {
+        CountingTransaction transaction = new CountingTransaction();
+        LavShardExecutorInterceptor scopedInterceptor =
+                new LavShardExecutorInterceptor(
+                        routeEngine,
+                        LavShardExecutorInterceptorTest::snapshot,
+                        routeContext,
+                        MyBatisIntegrationScope.of(Set.of(
+                                "com.acme.managed.mapper"
+                        ))
+                );
+        Executor executor = (Executor) scopedInterceptor.plugin(
+                new BatchExecutor(configuration, transaction)
+        );
+        MappedStatement outsideScope = statement(
+                "com.acme.legacy.mapper.LegacyMapper.update",
+                SqlCommandType.UPDATE,
+                "UPDATE legacy_table SET value = ?",
+                "value"
+        );
+
+        assertThatThrownBy(() -> executor.update(
+                outsideScope,
+                Map.of("value", "new")
+        ))
+                .isInstanceOf(SQLException.class)
+                .hasMessage("Physical connection was accessed");
+
+        assertThat(transaction.connectionAttempts).isEqualTo(1);
+        assertThat(routeContext.currentDecision()).isEmpty();
+    }
+
+    @Test
     void shouldClearRouteContextWhenExecutorFails() {
         RecordingExecutor target =
                 new RecordingExecutor(routeContext);
@@ -460,6 +605,19 @@ class LavShardExecutorInterceptorTest {
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage(
                         "routeContext must not be null"
+                );
+
+        assertThatThrownBy(() ->
+                new LavShardExecutorInterceptor(
+                        routeEngine,
+                        LavShardExecutorInterceptorTest::snapshot,
+                        routeContext,
+                        null
+                )
+        )
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage(
+                        "integrationScope must not be null"
                 );
     }
 

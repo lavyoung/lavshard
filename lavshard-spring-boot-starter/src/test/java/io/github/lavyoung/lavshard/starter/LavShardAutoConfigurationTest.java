@@ -11,6 +11,7 @@ import io.github.lavyoung.lavshard.core.api.topology.QualifiedTableName;
 import io.github.lavyoung.lavshard.core.internal.algorithm.ShardAlgorithmRegistry;
 import io.github.lavyoung.lavshard.core.internal.route.SqlRouteEngine;
 import io.github.lavyoung.lavshard.mybatis.internal.LavShardExecutorInterceptor;
+import io.github.lavyoung.lavshard.mybatis.internal.MyBatisIntegrationScope;
 import io.github.lavyoung.lavshard.mybatis.internal.MyBatisRouteContext;
 import io.github.lavyoung.lavshard.starter.support.SpringShardContext;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,7 @@ import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -57,6 +59,7 @@ class LavShardAutoConfigurationTest {
                     assertThat(context).hasSingleBean(SqlRouteEngine.class);
                     assertThat(context).hasSingleBean(SpringShardContext.class);
                     assertThat(context).hasSingleBean(MyBatisRouteContext.class);
+                    assertThat(context).hasSingleBean(MyBatisIntegrationScope.class);
                     assertThat(context).hasSingleBean(LavShardExecutorInterceptor.class);
                     assertThat(context.getBean(LavShardProperties.class).enabled()).isTrue();
                 });
@@ -73,7 +76,111 @@ class LavShardAutoConfigurationTest {
                     assertThat(context).doesNotHaveBean(ShardAlgorithmRegistry.class);
                     assertThat(context).doesNotHaveBean(SqlRouteEngine.class);
                     assertThat(context).doesNotHaveBean(MyBatisRouteContext.class);
+                    assertThat(context).doesNotHaveBean(MyBatisIntegrationScope.class);
                     assertThat(context).doesNotHaveBean(LavShardExecutorInterceptor.class);
+                });
+    }
+
+    @Test
+    void shouldBindManagedMapperPackagesIntoIntegrationScope() {
+        contextRunner
+                .withPropertyValues(validProperties("hash_mod"))
+                .withPropertyValues(
+                        "lavshard.integration.managed-mapper-packages[0]="
+                                + "com.acme.order.mapper",
+                        "lavshard.integration.managed-mapper-packages[1]="
+                                + "com.acme.billing.mapper.InvoiceMapper"
+                )
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    LavShardProperties properties = context.getBean(
+                            LavShardProperties.class
+                    );
+                    MyBatisIntegrationScope scope = context.getBean(
+                            MyBatisIntegrationScope.class
+                    );
+
+                    assertThat(properties.integration().managedMapperPackages())
+                            .containsExactlyInAnyOrder(
+                                    "com.acme.order.mapper",
+                                    "com.acme.billing.mapper.InvoiceMapper"
+                            );
+                    assertThat(scope.includes(
+                            "com.acme.order.mapper.OrderMapper.select"
+                    )).isTrue();
+                    assertThat(scope.includes(
+                            "com.acme.order.mapper.archive.ArchiveMapper.insert"
+                    )).isTrue();
+                    assertThat(scope.includes(
+                            "com.acme.billing.mapper.InvoiceMapper.select"
+                    )).isTrue();
+                    assertThat(scope.includes(
+                            "com.acme.customer.mapper.CustomerMapper.select"
+                    )).isFalse();
+                });
+    }
+
+    @Test
+    void shouldManageAllMappersWhenManagedPackagesAreNotConfigured() {
+        contextRunner
+                .withPropertyValues(validProperties("hash_mod"))
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    LavShardProperties properties = context.getBean(
+                            LavShardProperties.class
+                    );
+                    MyBatisIntegrationScope scope = context.getBean(
+                            MyBatisIntegrationScope.class
+                    );
+
+                    assertThat(properties.integration().managedMapperPackages())
+                            .isEmpty();
+                    assertThat(scope.includes(
+                            "any.application.Mapper.select"
+                    )).isTrue();
+                });
+    }
+
+    @Test
+    void shouldFailStartupWhenManagedMapperPackageIsBlank() {
+        contextRunner
+                .withPropertyValues(validProperties("hash_mod"))
+                .withPropertyValues(
+                        "lavshard.integration.managed-mapper-packages[0]= "
+                )
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(IllegalArgumentException.class)
+                            .hasRootCauseMessage(
+                                    "managedMapperPackages must not contain "
+                                            + "blank package names"
+                            );
+                });
+    }
+
+    @Test
+    void shouldBackOffAndWireApplicationProvidedIntegrationScope() {
+        contextRunner
+                .withUserConfiguration(CustomIntegrationScopeConfiguration.class)
+                .withPropertyValues(validProperties("hash_mod"))
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    MyBatisIntegrationScope applicationScope = context.getBean(
+                            "applicationIntegrationScope",
+                            MyBatisIntegrationScope.class
+                    );
+                    LavShardExecutorInterceptor interceptor = context.getBean(
+                            LavShardExecutorInterceptor.class
+                    );
+
+                    assertThat(context).hasSingleBean(MyBatisIntegrationScope.class);
+                    assertThat(context.getBean(MyBatisIntegrationScope.class))
+                            .isSameAs(applicationScope);
+                    assertThat(ReflectionTestUtils.getField(
+                            interceptor,
+                            "integrationScope"
+                    )).isSameAs(applicationScope);
                 });
     }
 
@@ -293,6 +400,17 @@ class LavShardAutoConfigurationTest {
             return new ShardAlgorithmRegistry(
                     List.of(new ConstantAlgorithm("test_constant"))
             );
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class CustomIntegrationScopeConfiguration {
+
+        @Bean
+        MyBatisIntegrationScope applicationIntegrationScope() {
+            return MyBatisIntegrationScope.of(List.of(
+                    "com.acme.application.mapper"
+            ));
         }
     }
 
