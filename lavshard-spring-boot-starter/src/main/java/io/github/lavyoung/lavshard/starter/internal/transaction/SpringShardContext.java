@@ -76,8 +76,20 @@ public final class SpringShardContext {
         TransactionSynchronizationManager.bindResource(transactionResourceKey, state);
 
         try {
+            // 外层事务挂起时释放线程上的路由绑定，内层事务可以独立选库；恢复时重新绑定原来的状态对象，
+            // 完整保留外层数据源、规则版本和拓扑版本。连接的挂起与恢复仍由 Spring 负责
             TransactionSynchronizationManager
                     .registerSynchronization(new TransactionSynchronization() {
+
+                        @Override
+                        public void suspend() {
+                            TransactionSynchronizationManager.unbindResource(transactionResourceKey);
+                        }
+
+                        @Override
+                        public void resume() {
+                            TransactionSynchronizationManager.bindResource(transactionResourceKey, state);
+                        }
 
                         @Override
                         public void afterCompletion(int status) {
