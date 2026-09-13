@@ -10,7 +10,7 @@ package io.github.lavyoung.lavshard.core.api.route;
  *     <li>透传 SQL：保持原始 SQL，在默认数据源执行</li>
  * </ul>
  *
- * <p>该接口使用密封类型，防止调用方遗漏未知的决策类型。</p>
+ * <p>路由决策同时携带与框架无关的事务要求。执行适配器必须在访问真实物理数据源之前完成校验。</p> *
  *
  * @author <a href="mailto:lavyoung1325@outlook.com">lavyoung</a>
  * @version 0.1.0
@@ -18,4 +18,10 @@ package io.github.lavyoung.lavshard.core.api.route;
  */
 public sealed interface SqlRouteDecision permits ManagedRouteDecision, PassThroughDecision {
 
+    /**
+     * 返回当前 SQL 对本地事务的最低要求。
+     *
+     * @return 非空事务要求
+     */
+    TransactionRequirement transactionRequirement();
 }

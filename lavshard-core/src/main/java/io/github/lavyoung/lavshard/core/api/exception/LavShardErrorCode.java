@@ -29,6 +29,8 @@ public enum LavShardErrorCode {
 
     // 本地事务
     TRANSACTION_ROUTE_CONFLICT("LAVSHARD-CORE-5001"),
+    TRANSACTION_REQUIRED("LAVSHARD-CORE-5002"),
+
     ;
 
     private final String code;

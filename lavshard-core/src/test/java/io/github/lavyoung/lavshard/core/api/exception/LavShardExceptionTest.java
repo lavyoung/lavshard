@@ -42,6 +42,10 @@ class LavShardExceptionTest {
                 () -> assertEquals(
                         "LAVSHARD-CORE-5001",
                         LavShardErrorCode.TRANSACTION_ROUTE_CONFLICT.code()
+                ),
+                () -> assertEquals(
+                        "LAVSHARD-CORE-5002",
+                        LavShardErrorCode.TRANSACTION_REQUIRED.code()
                 )
         );
     }
@@ -65,7 +69,9 @@ class LavShardExceptionTest {
                 LavShardErrorCode.ROUTE_NOT_FOUND,
                 new RouteNotFoundException(message),
                 LavShardErrorCode.TRANSACTION_ROUTE_CONFLICT,
-                new CrossShardTransactionException(message)
+                new CrossShardTransactionException(message),
+                LavShardErrorCode.TRANSACTION_REQUIRED,
+                new TransactionRequiredException(message)
         );
 
         assertAll(

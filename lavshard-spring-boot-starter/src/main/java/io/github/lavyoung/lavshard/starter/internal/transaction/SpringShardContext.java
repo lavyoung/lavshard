@@ -1,9 +1,11 @@
 package io.github.lavyoung.lavshard.starter.internal.transaction;
 
 import io.github.lavyoung.lavshard.core.api.exception.CrossShardTransactionException;
+import io.github.lavyoung.lavshard.core.api.exception.TransactionRequiredException;
 import io.github.lavyoung.lavshard.core.api.route.ManagedRouteDecision;
 import io.github.lavyoung.lavshard.core.api.route.PassThroughDecision;
 import io.github.lavyoung.lavshard.core.api.route.SqlRouteDecision;
+import io.github.lavyoung.lavshard.core.api.route.TransactionRequirement;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -31,27 +33,34 @@ public final class SpringShardContext {
     /**
      * 校验并绑定当前 SQL 路由。
      *
-     * <p>非事务调用不保存任何状态。事务调用第一次进入时创建绑定，
-     * 后续调用必须使用相同数据源。Managed 路由还必须保持规则版本
-     * 和拓扑版本一致。</p>
+     * <p>首先校验 SQL 声明的最低事务要求。非事务调用不会保存
+     * 路由状态；事务调用第一次进入时创建绑定，后续调用必须使用
+     * 相同数据源。Managed 路由还必须保持规则版本和拓扑版本一致。</p>
      *
      * @param decision 当前 SQL 路由决策
      * @throws NullPointerException           decision 为空时抛出
+     * @throws TransactionRequiredException   SQL 要求事务但当前无事务时抛出
      * @throws IllegalStateException          已标记事务活动但 Spring 事务同步
      *                                        尚未激活时抛出
      * @throws CrossShardTransactionException 当前路由与事务绑定冲突时抛出
      */
     public void validate(SqlRouteDecision decision) {
         Objects.requireNonNull(decision, "decision must not be null");
+
+        validateTransactionPresence(decision);
+
         if (!TransactionSynchronizationManager.isActualTransactionActive()) {
             return;
         }
 
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
-            throw new IllegalStateException("Transaction synchronization is not active");
+            throw new IllegalStateException(
+                    "Transaction synchronization is not active"
+            );
         }
 
         TransactionRoute route = transactionRoute(decision);
+
         Object resource = TransactionSynchronizationManager.getResource(transactionResourceKey);
 
         if (resource == null) {
@@ -64,6 +73,24 @@ public final class SpringShardContext {
         }
 
         state.validate(route);
+    }
+
+    /**
+     * 校验当前 SQL 的最低事务要求。
+     *
+     * @param decision 当前 SQL 路由决策
+     * @throws TransactionRequiredException SQL 要求事务但当前无事务时抛出
+     */
+    private static void validateTransactionPresence(
+            SqlRouteDecision decision
+    ) {
+        boolean transactionRequired = decision.transactionRequirement() == TransactionRequirement.REQUIRED;
+
+        boolean transactionActive = TransactionSynchronizationManager.isActualTransactionActive();
+
+        if (transactionRequired && !transactionActive) {
+            throw new TransactionRequiredException("SQL requires an active local transaction");
+        }
     }
 
     /**

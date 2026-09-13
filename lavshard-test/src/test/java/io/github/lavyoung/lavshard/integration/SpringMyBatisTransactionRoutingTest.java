@@ -3,6 +3,7 @@ package io.github.lavyoung.lavshard.integration;
 import io.github.lavyoung.lavshard.core.api.algorithm.AlgorithmConfig;
 import io.github.lavyoung.lavshard.core.api.algorithm.ShardValue;
 import io.github.lavyoung.lavshard.core.api.exception.CrossShardTransactionException;
+import io.github.lavyoung.lavshard.core.api.exception.TransactionRequiredException;
 import io.github.lavyoung.lavshard.core.api.rule.RuleSnapshot;
 import io.github.lavyoung.lavshard.core.api.rule.TableRule;
 import io.github.lavyoung.lavshard.core.api.topology.QualifiedTableName;
@@ -118,6 +119,69 @@ class SpringMyBatisTransactionRoutingTest {
 
         assertThat(countOrders(jdbc0)).isEqualTo(1);
         assertThat(countOrders(jdbc1)).isZero();
+    }
+
+    @Test
+    void shouldRejectManagedForUpdateOutsideTransactionBeforeConnection() {
+        // Given
+        jdbc0.update(
+                "INSERT INTO t_order_00 (user_id, note) VALUES (?, ?)",
+                ds0UserId,
+                "lock-target"
+        );
+        int ds0AttemptsBefore = ds0.connectionAttempts();
+
+        // When / Then
+        assertThatThrownBy(() -> mapper.lockNote(ds0UserId))
+                .isInstanceOf(MyBatisSystemException.class)
+                .hasRootCauseInstanceOf(TransactionRequiredException.class);
+        assertThat(ds0.connectionAttempts()).isEqualTo(ds0AttemptsBefore);
+    }
+
+    @Test
+    void shouldExecuteManagedForUpdateInsideSelectedTransaction() {
+        // Given
+        jdbc0.update(
+                "INSERT INTO t_order_00 (user_id, note) VALUES (?, ?)",
+                ds0UserId,
+                "lock-target"
+        );
+        int ds0AttemptsBefore = ds0.connectionAttempts();
+
+        // When
+        String note = transactionTemplate.execute(status ->
+                mapper.lockNote(ds0UserId)
+        );
+
+        // Then
+        assertThat(note).isEqualTo("lock-target");
+        assertThat(ds0.connectionAttempts() - ds0AttemptsBefore)
+                .isEqualTo(1);
+    }
+
+    @Test
+    void shouldRejectPassThroughForUpdateOutsideTransactionBeforeConnection() {
+        // Given
+        jdbc1.update("INSERT INTO sys_audit (id) VALUES (1)");
+        int ds1AttemptsBefore = ds1.connectionAttempts();
+
+        // When / Then
+        assertThatThrownBy(() -> mapper.lockAudit(1L))
+                .isInstanceOf(MyBatisSystemException.class)
+                .hasRootCauseInstanceOf(TransactionRequiredException.class);
+        assertThat(ds1.connectionAttempts()).isEqualTo(ds1AttemptsBefore);
+    }
+
+    @Test
+    void shouldExecutePassThroughForUpdateInsideDefaultDataSourceTransaction() {
+        // Given
+        jdbc1.update("INSERT INTO sys_audit (id) VALUES (1)");
+
+        // When
+        Long id = transactionTemplate.execute(status -> mapper.lockAudit(1L));
+
+        // Then
+        assertThat(id).isEqualTo(1L);
     }
 
     @AfterEach
@@ -559,6 +623,24 @@ class SpringMyBatisTransactionRoutingTest {
         int countByUserId(
                 @Param("userId") String userId
         );
+
+        @Select("""
+                SELECT note
+                FROM t_order
+                WHERE user_id = #{userId}
+                FOR UPDATE
+                """)
+        String lockNote(
+                @Param("userId") String userId
+        );
+
+        @Select("""
+                SELECT id
+                FROM sys_audit
+                WHERE id = #{id}
+                FOR UPDATE
+                """)
+        Long lockAudit(@Param("id") long id);
 
         @Select("SELECT COUNT(*) FROM sys_audit")
         int countAuditRows();

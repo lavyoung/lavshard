@@ -1,6 +1,7 @@
 package io.github.lavyoung.lavshard.core.internal.sql;
 
 import io.github.lavyoung.lavshard.core.api.exception.UnsupportedSqlException;
+import io.github.lavyoung.lavshard.core.api.route.TransactionRequirement;
 import io.github.lavyoung.lavshard.core.api.rule.RuleSnapshot;
 import io.github.lavyoung.lavshard.core.api.topology.QualifiedTableName;
 import net.sf.jsqlparser.JSQLParserException;
@@ -9,6 +10,8 @@ import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.delete.Delete;
 import net.sf.jsqlparser.statement.insert.Insert;
+import net.sf.jsqlparser.statement.select.ForMode;
+import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.update.Update;
 import net.sf.jsqlparser.util.TablesNamesFinder;
@@ -21,9 +24,8 @@ import java.util.Set;
 /**
  * 基于 JSQLParser 的 SQL 管理边界分类器。
  *
- * <p>分类器只识别 SQL 引用的表，并判断它们属于分片规则、
- * 普通表允许列表还是未知范围。它不负责参数绑定、分片计算、
- * SQL 改写或数据库访问。</p>
+ * <p>分类器识别 SQL 引用的表、管理边界以及与执行相关的最低
+ * 事务要求。它不负责参数绑定、分片计算、SQL 改写或数据库访问。</p>
  *
  * <p>无法安全分类的 SQL 必须在访问数据库之前失败，不能因为
  * 没找到分片规则就自动降级到默认数据源。</p>
@@ -42,19 +44,11 @@ public final class JSqlParserStatementClassifier {
      * @param ordinaryTables 明确允许透传的普通表
      * @throws NullPointerException 集合或其中的表为空时抛出
      */
-    public JSqlParserStatementClassifier(
-            Set<QualifiedTableName> ordinaryTables
-    ) {
-        Objects.requireNonNull(
-                ordinaryTables,
-                "ordinaryTables must not be null"
-        );
+    public JSqlParserStatementClassifier(Set<QualifiedTableName> ordinaryTables) {
+        Objects.requireNonNull(ordinaryTables, "ordinaryTables must not be null");
 
         for (QualifiedTableName table : ordinaryTables) {
-            Objects.requireNonNull(
-                    table,
-                    "ordinary table must not be null"
-            );
+            Objects.requireNonNull(table, "ordinary table must not be null");
         }
 
         this.ordinaryTables = Set.copyOf(ordinaryTables);
@@ -69,73 +63,44 @@ public final class JSqlParserStatementClassifier {
      * @throws NullPointerException    snapshot 为空时抛出
      * @throws UnsupportedSqlException SQL 无法安全分类时抛出
      */
-    public SqlClassification classify(
-            RuleSnapshot snapshot,
-            String sql
-    ) {
-        Objects.requireNonNull(
-                snapshot,
-                "snapshot must not be null"
-        );
+    public SqlClassification classify(RuleSnapshot snapshot, String sql) {
+        Objects.requireNonNull(snapshot, "snapshot must not be null");
 
         Statement statement = parse(sql);
 
         validateStatementType(statement);
 
-        List<QualifiedTableName> tables =
-                collectTables(statement);
+        TransactionRequirement transactionRequirement = transactionRequirement(statement);
+
+        List<QualifiedTableName> tables = collectTables(statement);
 
         if (tables.isEmpty()) {
-            return classifyTablelessStatement(statement);
+            return classifyTablelessStatement(statement, transactionRequirement);
         }
 
-        List<QualifiedTableName> unknownTables =
-                findUnknownTables(
-                        snapshot,
-                        tables
-                );
+        List<QualifiedTableName> unknownTables = findUnknownTables(snapshot, tables);
 
         if (!unknownTables.isEmpty()) {
-            throw new UnsupportedSqlException(
-                    "table is not configured as managed or ordinary: "
-                            + unknownTables.get(0)
-            );
+            throw new UnsupportedSqlException("table is not configured as managed or ordinary: " + unknownTables.get(0));
         }
 
-        long managedTableCount = tables.stream()
-                .filter(table ->
-                        snapshot.find(table).isPresent()
-                )
-                .count();
+        long managedTableCount = tables.stream().filter(table -> snapshot.find(table).isPresent()).count();
 
-        long ordinaryTableCount = tables.stream()
-                .filter(ordinaryTables::contains)
-                .count();
+        long ordinaryTableCount = tables.stream().filter(ordinaryTables::contains).count();
 
-        if (managedTableCount > 0
-                && ordinaryTableCount > 0) {
-            throw new UnsupportedSqlException(
-                    "managed and ordinary tables must not be mixed"
-            );
+        if (managedTableCount > 0 && ordinaryTableCount > 0) {
+            throw new UnsupportedSqlException("managed and ordinary tables must not be mixed");
         }
 
         if (managedTableCount > 1) {
-            throw new UnsupportedSqlException(
-                    "v0.1 only supports one managed table per SQL"
-            );
+            throw new UnsupportedSqlException("v0.1 only supports one managed table per SQL");
         }
 
         if (managedTableCount == 1) {
-            return new SqlClassification(
-                    SqlClassificationType.MANAGED,
-                    tables
-            );
+            return new SqlClassification(SqlClassificationType.MANAGED, tables, transactionRequirement);
         }
 
-        return new SqlClassification(
-                SqlClassificationType.PASSTHROUGH,
-                tables
-        );
+        return new SqlClassification(SqlClassificationType.PASSTHROUGH, tables, transactionRequirement);
     }
 
     /**
@@ -147,74 +112,67 @@ public final class JSqlParserStatementClassifier {
      */
     private static Statement parse(String sql) {
         if (sql == null || sql.isBlank()) {
-            throw new UnsupportedSqlException(
-                    "sql must not be blank"
-            );
+            throw new UnsupportedSqlException("sql must not be blank");
         }
 
         try {
             return CCJSqlParserUtil.parse(sql);
         } catch (JSQLParserException exception) {
-            throw new UnsupportedSqlException(
-                    "failed to parse SQL",
-                    exception
-            );
+            throw new UnsupportedSqlException("failed to parse SQL", exception);
         }
     }
 
-    private static void validateStatementType(
-            Statement statement
-    ) {
-        boolean supported =
-                statement instanceof Select
-                        || statement instanceof Insert
-                        || statement instanceof Update
-                        || statement instanceof Delete;
+    private static void validateStatementType(Statement statement) {
+        boolean supported = statement instanceof Select || statement instanceof Insert || statement instanceof Update || statement instanceof Delete;
 
         if (!supported) {
-            throw new UnsupportedSqlException(
-                    "v0.1 only supports SELECT, INSERT, "
-                            + "UPDATE and DELETE"
-            );
+            throw new UnsupportedSqlException("v0.1 only supports SELECT, INSERT, " + "UPDATE and DELETE");
         }
     }
 
-    private static List<QualifiedTableName> collectTables(
-            Statement statement
-    ) {
+    /**
+     * 从顶层 SELECT AST 提取锁定读的事务要求。
+     *
+     * <p>JSQLParser 4.9 将 {@code FOR UPDATE} 表达为
+     * {@link PlainSelect#getForMode()} 等于 {@link ForMode#UPDATE}。
+     * NOWAIT 和 SKIP LOCKED 不改变 ForMode，因此会自然继承事务要求。</p>
+     *
+     * <p>v0.1 只开放 FOR UPDATE。FOR SHARE、NO KEY UPDATE 等其他
+     * 锁模式不能降级为普通查询，否则会绕过 SQL 支持矩阵。</p>
+     *
+     * @param statement 已解析并完成类型校验的 SQL
+     * @return REQUIRED 或 NONE
+     * @throws UnsupportedSqlException 锁模式不在 v0.1 支持范围时抛出
+     */
+    private static TransactionRequirement transactionRequirement(Statement statement) {
+        if (!(statement instanceof PlainSelect select) || select.getForMode() == null) {
+            return TransactionRequirement.NONE;
+        }
+
+        if (select.getForMode() != ForMode.UPDATE) {
+            throw new UnsupportedSqlException("v0.1 only supports FOR UPDATE locking reads");
+        }
+
+        return TransactionRequirement.REQUIRED;
+    }
+
+    private static List<QualifiedTableName> collectTables(Statement statement) {
         TableCollector collector = new TableCollector();
 
         return collector.collect(statement);
     }
 
-    private List<QualifiedTableName> findUnknownTables(
-            RuleSnapshot snapshot,
-            List<QualifiedTableName> tables
-    ) {
-        return tables.stream()
-                .filter(table ->
-                        snapshot.find(table).isEmpty()
-                )
-                .filter(table ->
-                        !ordinaryTables.contains(table)
-                )
-                .toList();
+    private List<QualifiedTableName> findUnknownTables(RuleSnapshot snapshot, List<QualifiedTableName> tables) {
+        return tables.stream().filter(table -> snapshot.find(table).isEmpty())
+                .filter(table -> !ordinaryTables.contains(table)).toList();
     }
 
-    private static SqlClassification
-    classifyTablelessStatement(
-            Statement statement
-    ) {
+    private static SqlClassification classifyTablelessStatement(Statement statement, TransactionRequirement transactionRequirement) {
         if (statement instanceof Select) {
-            return new SqlClassification(
-                    SqlClassificationType.PASSTHROUGH,
-                    List.of()
-            );
+            return new SqlClassification(SqlClassificationType.PASSTHROUGH, List.of(), transactionRequirement);
         }
 
-        throw new UnsupportedSqlException(
-                "DML statement must reference a table"
-        );
+        throw new UnsupportedSqlException("DML statement must reference a table");
     }
 
     /**
@@ -223,24 +181,18 @@ public final class JSqlParserStatementClassifier {
      * <p>直接收集 Table AST，而不是拆分字符串形式的完整表名，
      * 避免把 schema、catalog 与 table 的顺序处理错误。</p>
      */
-    private static final class TableCollector
-            extends TablesNamesFinder {
+    private static final class TableCollector extends TablesNamesFinder {
 
-        private final Set<QualifiedTableName> tables =
-                new LinkedHashSet<>();
+        private final Set<QualifiedTableName> tables = new LinkedHashSet<>();
 
-        private List<QualifiedTableName> collect(
-                Statement statement
-        ) {
+        private List<QualifiedTableName> collect(Statement statement) {
             getTables(statement);
             return List.copyOf(tables);
         }
 
         @Override
         public void visit(Table table) {
-            tables.add(
-                    JSqlParserTableNameMapper.from(table)
-            );
+            tables.add(JSqlParserTableNameMapper.from(table));
 
             super.visit(table);
         }
