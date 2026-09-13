@@ -299,6 +299,79 @@ class LavShardRoutingDataSourceTest {
     }
 
     @Test
+    void shouldDeferTransactionIsolationUntilRouteIsAvailable()
+            throws SQLException {
+        // Given
+        TrackingDataSource ds0 = new TrackingDataSource("ds0");
+        Connection connection = routingDataSource(Map.of("ds0", ds0))
+                .getConnection();
+
+        // When: Spring reads the previous isolation level before a Mapper routes SQL.
+        assertThat(connection.getTransactionIsolation())
+                .isEqualTo(Connection.TRANSACTION_READ_COMMITTED);
+        connection.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
+
+        // Then: logical state is visible without selecting a physical data source.
+        assertThat(connection.getTransactionIsolation())
+                .isEqualTo(Connection.TRANSACTION_SERIALIZABLE);
+        assertThat(ds0.connectionAttempts()).isZero();
+
+        try (MyBatisRouteContext.Scope ignored = routeContext.open(
+                new PassThroughDecision("ds0", "SELECT 1")
+        )) {
+            assertThat(connection.getCatalog()).isEqualTo("ds0");
+        }
+
+        assertThat(ds0.transactionIsolation())
+                .isEqualTo(Connection.TRANSACTION_SERIALIZABLE);
+        assertThat(ds0.connectionAttempts()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldDelegateTransactionIsolationAfterPhysicalInitialization()
+            throws SQLException {
+        // Given
+        TrackingDataSource ds0 = new TrackingDataSource("ds0");
+        Connection connection = routingDataSource(Map.of("ds0", ds0))
+                .getConnection();
+        try (MyBatisRouteContext.Scope ignored = routeContext.open(
+                new PassThroughDecision("ds0", "SELECT 1")
+        )) {
+            connection.getCatalog();
+        }
+
+        // When
+        connection.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
+
+        // Then
+        assertThat(connection.getTransactionIsolation())
+                .isEqualTo(Connection.TRANSACTION_REPEATABLE_READ);
+        assertThat(ds0.transactionIsolation())
+                .isEqualTo(Connection.TRANSACTION_REPEATABLE_READ);
+        assertThat(ds0.connectionAttempts()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldKeepDeferredTransactionIsolationPerLogicalConnection()
+            throws SQLException {
+        // Given
+        TrackingDataSource ds0 = new TrackingDataSource("ds0");
+        DataSource routing = routingDataSource(Map.of("ds0", ds0));
+        Connection serializable = routing.getConnection();
+        Connection defaultIsolation = routing.getConnection();
+
+        // When
+        serializable.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
+
+        // Then
+        assertThat(serializable.getTransactionIsolation())
+                .isEqualTo(Connection.TRANSACTION_SERIALIZABLE);
+        assertThat(defaultIsolation.getTransactionIsolation())
+                .isEqualTo(Connection.TRANSACTION_READ_COMMITTED);
+        assertThat(ds0.connectionAttempts()).isZero();
+    }
+
+    @Test
     void shouldNotInitializePhysicalConnectionForEmptyTransactionCompletion()
             throws SQLException {
         TrackingDataSource ds0 = new TrackingDataSource("ds0");
@@ -400,6 +473,8 @@ class LavShardRoutingDataSourceTest {
         private final String id;
         private final AtomicInteger connectionAttempts = new AtomicInteger();
         private final AtomicInteger physicalCloseCount = new AtomicInteger();
+        private final AtomicInteger transactionIsolation =
+                new AtomicInteger(Connection.TRANSACTION_READ_COMMITTED);
         private final AtomicBoolean failNext = new AtomicBoolean();
         private volatile Connection lastConnection;
 
@@ -452,6 +527,11 @@ class LavShardRoutingDataSourceTest {
                 case "isClosed" -> closed.get();
                 case "getCatalog" -> id;
                 case "getAutoCommit" -> true;
+                case "getTransactionIsolation" -> transactionIsolation.get();
+                case "setTransactionIsolation" -> {
+                    transactionIsolation.set((Integer) arguments[0]);
+                    yield null;
+                }
                 case "unwrap" -> unwrap(proxy, arguments);
                 case "isWrapperFor" -> isWrapperFor(proxy, arguments);
                 case "toString" -> "PhysicalConnection[" + id + "]";
@@ -513,6 +593,10 @@ class LavShardRoutingDataSourceTest {
 
         private Connection lastConnection() {
             return lastConnection;
+        }
+
+        private int transactionIsolation() {
+            return transactionIsolation.get();
         }
 
         @Override

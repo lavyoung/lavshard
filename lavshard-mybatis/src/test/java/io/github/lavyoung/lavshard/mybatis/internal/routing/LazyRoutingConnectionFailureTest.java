@@ -34,6 +34,7 @@ class LazyRoutingConnectionFailureTest {
         physical.closeFailure = cleanup;
         Connection logical = LazyRoutingConnection.create(physical::connection);
         logical.setReadOnly(true);
+        logical.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
         logical.setAutoCommit(false);
 
         // When / Then: cleanup never hides the primary JDBC or runtime exception.
@@ -107,6 +108,7 @@ class LazyRoutingConnectionFailureTest {
         Connection logical = LazyRoutingConnection.create(() ->
                 acquisitions.incrementAndGet() == 1 ? failed.connection() : healthy.connection());
         logical.setReadOnly(true);
+        logical.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
         logical.setAutoCommit(false);
 
         // When
@@ -118,7 +120,11 @@ class LazyRoutingConnectionFailureTest {
         assertThat(failed.closeAttempts).isEqualTo(1);
         assertThat(failed.closed).isTrue();
         assertThat(failed.statementAttempts).isZero();
-        assertThat(healthy.properties).containsExactly("setReadOnly=true", "setAutoCommit=false");
+        assertThat(healthy.properties).containsExactly(
+                "setReadOnly=true",
+                "setTransactionIsolation=" + Connection.TRANSACTION_SERIALIZABLE,
+                "setAutoCommit=false"
+        );
         assertThat(healthy.statementAttempts).isEqualTo(2);
         assertThat(acquisitions.get()).isEqualTo(2);
         logical.close();
@@ -142,6 +148,7 @@ class LazyRoutingConnectionFailureTest {
             return physical.connection();
         });
         logical.setReadOnly(true);
+        logical.setTransactionIsolation(Connection.TRANSACTION_SERIALIZABLE);
         logical.setAutoCommit(false);
 
         // When
@@ -151,7 +158,11 @@ class LazyRoutingConnectionFailureTest {
 
         // Then
         assertThat(attempts.get()).isEqualTo(2);
-        assertThat(physical.properties).containsExactly("setReadOnly=true", "setAutoCommit=false");
+        assertThat(physical.properties).containsExactly(
+                "setReadOnly=true",
+                "setTransactionIsolation=" + Connection.TRANSACTION_SERIALIZABLE,
+                "setAutoCommit=false"
+        );
         logical.close();
         assertThat(physical.closed).isTrue();
     }
@@ -177,7 +188,11 @@ class LazyRoutingConnectionFailureTest {
     }
 
     private static Stream<String> properties() {
-        return Stream.of("setReadOnly", "setAutoCommit");
+        return Stream.of(
+                "setReadOnly",
+                "setTransactionIsolation",
+                "setAutoCommit"
+        );
     }
 
     @ParameterizedTest
@@ -243,7 +258,7 @@ class LazyRoutingConnectionFailureTest {
             return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(),
                     new Class<?>[]{Connection.class}, (proxy, method, arguments) -> {
                         switch (method.getName()) {
-                            case "setReadOnly", "setAutoCommit":
+                            case "setReadOnly", "setTransactionIsolation", "setAutoCommit":
                                 properties.add(method.getName() + "=" + arguments[0]);
                                 if (method.getName().equals(failProperty)) {
                                     throw propertyFailure;

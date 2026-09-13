@@ -15,8 +15,8 @@ import java.util.concurrent.Executor;
  * <p>代理在首次需要真实数据库连接时调用物理连接工厂。首次成功
  * 初始化后永久固定该物理连接，不再读取后续路由上下文。</p>
  *
- * <p>Spring 在 Mapper 执行前设置的 autoCommit 和 readOnly 属性
- * 会先保存在逻辑连接中，并在物理连接成功创建后应用。</p>
+ * <p>Spring 在 Mapper 执行前设置的 autoCommit、readOnly 和事务
+ * 隔离级别会先保存在逻辑连接中，并在物理连接成功创建后应用。</p>
  *
  * <p>物理连接获取或初始化失败不会写入半初始化状态，因此后续
  * JDBC 操作可以重新尝试。逻辑连接关闭后不会再次访问数据源。</p>
@@ -26,6 +26,13 @@ import java.util.concurrent.Executor;
  * @date 2026/9/12
  */
 final class LazyRoutingConnection implements InvocationHandler {
+
+    /**
+     * LavShard v0.1 首要数据库为 MySQL，其默认事务隔离级别为
+     * READ_COMMITTED。逻辑连接尚未选择物理库时使用该值向 Spring
+     * 提供可恢复的事务隔离级别快照。
+     */
+    private static final int DEFAULT_TRANSACTION_ISOLATION = Connection.TRANSACTION_READ_COMMITTED;
 
     private final PhysicalConnectionFactory connectionFactory;
 
@@ -38,6 +45,9 @@ final class LazyRoutingConnection implements InvocationHandler {
 
     private boolean readOnly;
     private boolean readOnlyConfigured;
+
+    private int transactionIsolation = DEFAULT_TRANSACTION_ISOLATION;
+    private boolean transactionIsolationConfigured;
 
     private LazyRoutingConnection(PhysicalConnectionFactory connectionFactory) {
         this.connectionFactory = Objects.requireNonNull(connectionFactory, "connectionFactory must not be null");
@@ -80,6 +90,11 @@ final class LazyRoutingConnection implements InvocationHandler {
             case "isReadOnly" -> isReadOnly();
             case "setReadOnly" -> {
                 setReadOnly((Boolean) arguments[0]);
+                yield null;
+            }
+            case "getTransactionIsolation" -> getTransactionIsolation();
+            case "setTransactionIsolation" -> {
+                setTransactionIsolation((Integer) arguments[0]);
                 yield null;
             }
             case "commit" -> invokeIfInitialized(method, arguments);
@@ -181,7 +196,7 @@ final class LazyRoutingConnection implements InvocationHandler {
         Connection acquired = connectionFactory.getConnection();
 
         if (acquired == null) {
-            throw new SQLException("Physical DataSource returned " + "a null Connection");
+            throw new SQLException("Physical DataSource returned a null Connection");
         }
 
         try {
@@ -198,12 +213,19 @@ final class LazyRoutingConnection implements InvocationHandler {
     /**
      * 将 Spring 在事务开始阶段设置的逻辑属性应用到物理连接。
      *
+     * <p>应用顺序固定为 readOnly、transactionIsolation、autoCommit。
+     * autoCommit 最后设置，避免连接提前进入事务状态后再改变事务属性。</p>
+     *
      * @param acquired 新获取的物理连接
      * @throws SQLException JDBC 驱动拒绝属性设置时抛出
      */
     private void applyDeferredProperties(Connection acquired) throws SQLException {
         if (readOnlyConfigured) {
             acquired.setReadOnly(readOnly);
+        }
+
+        if (transactionIsolationConfigured) {
+            acquired.setTransactionIsolation(transactionIsolation);
         }
 
         if (autoCommitConfigured) {
@@ -285,6 +307,45 @@ final class LazyRoutingConnection implements InvocationHandler {
 
         readOnly = requestedReadOnly;
         readOnlyConfigured = true;
+    }
+
+    /**
+     * 获取逻辑或物理连接的事务隔离级别。
+     *
+     * <p>物理连接尚未创建时返回逻辑状态，不触发数据源选择。
+     * 这保证 Spring 可以在 Mapper 建立路由上下文前读取旧值。</p>
+     *
+     * @return 当前事务隔离级别
+     * @throws SQLException 连接关闭或驱动查询失败时抛出
+     */
+    private synchronized int getTransactionIsolation() throws SQLException {
+        ensureOpen();
+
+        if (physicalConnection != null) {
+            return physicalConnection.getTransactionIsolation();
+        }
+
+        return transactionIsolation;
+    }
+
+    /**
+     * 设置事务隔离级别。
+     *
+     * <p>物理连接尚未创建时只保存到当前逻辑连接。物理连接创建后
+     * 直接委托 JDBC 驱动，并且只有驱动设置成功后才更新逻辑状态。</p>
+     *
+     * @param requestedTransactionIsolation 新事务隔离级别
+     * @throws SQLException 连接关闭或驱动设置失败时抛出
+     */
+    private synchronized void setTransactionIsolation(int requestedTransactionIsolation) throws SQLException {
+        ensureOpen();
+
+        if (physicalConnection != null) {
+            physicalConnection.setTransactionIsolation(requestedTransactionIsolation);
+        }
+
+        transactionIsolation = requestedTransactionIsolation;
+        transactionIsolationConfigured = true;
     }
 
     /**

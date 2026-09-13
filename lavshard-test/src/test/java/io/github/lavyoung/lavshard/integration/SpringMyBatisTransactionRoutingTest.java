@@ -71,6 +71,7 @@ class SpringMyBatisTransactionRoutingTest {
     private JdbcTemplate jdbc1;
     private TransactionTemplate transactionTemplate;
     private DataSourceTransactionManager transactionManager;
+    private DataSource routingDataSource;
     private MyBatisRouteContext routeContext;
     private OrderMapper mapper;
     private String ds0UserId;
@@ -91,7 +92,7 @@ class SpringMyBatisTransactionRoutingTest {
                 new MyBatisRouteContext(
                         springShardContext::validate
                 );
-        DataSource routingDataSource =
+        routingDataSource =
                 new LavShardRoutingDataSource(
                         Map.of("ds0", ds0, "ds1", ds1),
                         routeContext
@@ -119,6 +120,45 @@ class SpringMyBatisTransactionRoutingTest {
 
         assertThat(countOrders(jdbc0)).isEqualTo(1);
         assertThat(countOrders(jdbc1)).isZero();
+    }
+
+    @Test
+    void shouldRouteManagedSqlWithNonDefaultIsolationWithoutOuterLazyProxy() {
+        // Given: Starter exposes LavShardRoutingDataSource itself as the lazy boundary.
+        TransactionTemplate serializable = new TransactionTemplate(
+                new DataSourceTransactionManager(routingDataSource)
+        );
+        serializable.setIsolationLevel(TransactionDefinition.ISOLATION_SERIALIZABLE);
+        OrderMapper directMapper = mapper(routingDataSource, routeContext);
+
+        // When
+        serializable.executeWithoutResult(status ->
+                directMapper.insert(ds1UserId, "serializable")
+        );
+
+        // Then
+        assertThat(countOrders(jdbc0)).isZero();
+        assertThat(countOrders(jdbc1)).isEqualTo(1);
+    }
+
+    @Test
+    void shouldNotOpenPhysicalConnectionForEmptyNonDefaultIsolationTransaction() {
+        // Given
+        TransactionTemplate serializable = new TransactionTemplate(
+                new DataSourceTransactionManager(routingDataSource)
+        );
+        serializable.setIsolationLevel(TransactionDefinition.ISOLATION_SERIALIZABLE);
+        int ds0AttemptsBefore = ds0.connectionAttempts();
+        int ds1AttemptsBefore = ds1.connectionAttempts();
+
+        // When
+        serializable.executeWithoutResult(status -> {
+            // An empty transaction must remain a purely logical connection lifecycle.
+        });
+
+        // Then
+        assertThat(ds0.connectionAttempts()).isEqualTo(ds0AttemptsBefore);
+        assertThat(ds1.connectionAttempts()).isEqualTo(ds1AttemptsBefore);
     }
 
     @Test
