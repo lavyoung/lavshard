@@ -1,0 +1,59 @@
+spring:
+  application:
+    name: lavshard-example-multi-datasource
+
+lavshard:
+  enabled: true
+
+  integration:
+    default-data-source: ds0
+    default-transaction-isolation: read-committed
+    managed-mapper-packages:
+      - io.github.lavyoung.lavshard.example.multi.order.mapper
+
+  data-sources:
+    ds0:
+      managed:
+        url: "jdbc:h2:mem:lavshard_multi_0;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;INIT=RUNSCRIPT FROM 'classpath:schema.sql'"
+        username: sa
+        password:
+        driver-class-name: org.h2.Driver
+        maximum-pool-size: 4
+        minimum-idle: 0
+        connection-timeout: 30000
+
+    ds1:
+      managed:
+        url: "jdbc:h2:mem:lavshard_multi_1;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;INIT=RUNSCRIPT FROM 'classpath:schema.sql'"
+        username: sa
+        password:
+        driver-class-name: org.h2.Driver
+        maximum-pool-size: 4
+        minimum-idle: 0
+        connection-timeout: 30000
+
+  tables:
+    t_order:
+      rule-version: order-rule-v1
+      sharding-column: user_id
+
+      algorithm:
+        name: hash_mod
+        hash-version: murmur3_32_v1
+
+      topology:
+        version: order-topology-v1
+        bucket-count: 2
+
+        bucket-placements:
+          0: order-database-00
+          1: order-database-01
+
+        nodes:
+          order-database-00:
+            data-source: ds0
+            actual-table: t_order
+
+          order-database-01:
+            data-source: ds1
+            actual-table: t_order
