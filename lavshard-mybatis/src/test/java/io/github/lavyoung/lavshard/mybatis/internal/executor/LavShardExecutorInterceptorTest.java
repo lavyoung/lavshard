@@ -1,5 +1,8 @@
 package io.github.lavyoung.lavshard.mybatis.internal.executor;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.core.read.ListAppender;
 import io.github.lavyoung.lavshard.core.api.algorithm.AlgorithmConfig;
 import io.github.lavyoung.lavshard.core.api.exception.MissingShardKeyException;
 import io.github.lavyoung.lavshard.core.api.exception.UnsupportedSqlException;
@@ -30,6 +33,7 @@ import org.apache.ibatis.session.ResultHandler;
 import org.apache.ibatis.session.RowBounds;
 import org.apache.ibatis.transaction.Transaction;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -279,6 +283,80 @@ class LavShardExecutorInterceptorTest {
                 .isZero();
         assertThat(routeContext.currentDecision())
                 .isEmpty();
+    }
+
+    @Test
+    void shouldLogManagedAndPassThroughRoutesWithoutSqlOrParameterValues()
+            throws SQLException {
+        Logger logger = (Logger) LoggerFactory.getLogger(
+                LavShardExecutorInterceptor.class
+        );
+        Level originalLevel = logger.getLevel();
+        ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+
+        try {
+            RecordingExecutor target = new RecordingExecutor(routeContext);
+            Executor executor = plugin(target);
+            MappedStatement managed = statement(
+                    "OrderMapper.selectSecret",
+                    SqlCommandType.SELECT,
+                    "SELECT * FROM t_order WHERE user_id = ?",
+                    "userId"
+            );
+            MappedStatement passThrough = statement(
+                    "DictionaryMapper.selectSecret",
+                    SqlCommandType.SELECT,
+                    "SELECT * FROM sys_dict WHERE type = ?",
+                    "type"
+            );
+
+            executor.query(
+                    managed,
+                    Map.of("userId", "sensitive-user-123"),
+                    RowBounds.DEFAULT,
+                    Executor.NO_RESULT_HANDLER
+            );
+            executor.query(
+                    passThrough,
+                    Map.of("type", "sensitive-dictionary-value"),
+                    RowBounds.DEFAULT,
+                    Executor.NO_RESULT_HANDLER
+            );
+
+            List<String> messages = appender.list.stream()
+                    .map(event -> event.getFormattedMessage())
+                    .toList();
+            assertThat(messages).anySatisfy(message -> assertThat(message)
+                    .contains(
+                            "statementId=OrderMapper.selectSecret",
+                            "decision=MANAGED",
+                            "logicalTable=QualifiedTableName",
+                            "dataSourceId=ds0",
+                            "actualTable=QualifiedTableName",
+                            "ruleVersion=order-rule-v1",
+                            "topologyVersion=order-topology-v1"
+                    ));
+            assertThat(messages).anySatisfy(message -> assertThat(message)
+                    .contains(
+                            "statementId=DictionaryMapper.selectSecret",
+                            "decision=PASSTHROUGH",
+                            "dataSourceId=ds-default"
+                    ));
+            assertThat(String.join("\n", messages))
+                    .doesNotContain(
+                            "sensitive-user-123",
+                            "sensitive-dictionary-value",
+                            "SELECT * FROM"
+                    );
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(originalLevel);
+            appender.stop();
+        }
     }
 
     @Test

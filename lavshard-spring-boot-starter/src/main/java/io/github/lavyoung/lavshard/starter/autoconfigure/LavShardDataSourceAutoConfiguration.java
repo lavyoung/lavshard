@@ -5,6 +5,8 @@ import io.github.lavyoung.lavshard.mybatis.internal.routing.LavShardRoutingDataS
 import io.github.lavyoung.lavshard.mybatis.internal.routing.MyBatisRouteContext;
 import io.github.lavyoung.lavshard.starter.internal.config.LavShardConfigurationSnapshot;
 import io.github.lavyoung.lavshard.starter.internal.datasource.LavShardManagedDataSourceRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.BeanNotOfRequiredTypeException;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -17,6 +19,7 @@ import org.springframework.context.annotation.Primary;
 import javax.sql.DataSource;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.TreeSet;
 
 /**
  * LavShard 延迟路由数据源自动配置。
@@ -44,6 +47,8 @@ import java.util.Map;
 @ConditionalOnProperty(prefix = "lavshard", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class LavShardDataSourceAutoConfiguration {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(LavShardDataSourceAutoConfiguration.class);
+
     /**
      * 创建应用统一使用的延迟路由数据源。
      *
@@ -64,6 +69,14 @@ public class LavShardDataSourceAutoConfiguration {
     @ConditionalOnMissingBean(LavShardRoutingDataSource.class)
     public LavShardRoutingDataSource lavShardDataSource(LavShardConfigurationSnapshot snapshot, MyBatisRouteContext routeContext, ConfigurableListableBeanFactory beanFactory, LavShardManagedDataSourceRegistry managedRegistry) {
         Map<String, DataSource> physicalDataSources = resolvePhysicalDataSources(snapshot, beanFactory, managedRegistry);
+
+        LOGGER.info(
+                "LavShard routing data source initialized: dataSourceIds={}, defaultDataSourceId={}, managedTableCount={}, ordinaryTableCount={}",
+                new TreeSet<>(physicalDataSources.keySet()),
+                snapshot.defaultDataSourceId(),
+                snapshot.ruleSnapshot().rules().size(),
+                snapshot.ordinaryTables().size()
+        );
 
         return new LavShardRoutingDataSource(physicalDataSources, routeContext, snapshot.defaultTransactionIsolation());
     }

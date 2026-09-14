@@ -3,6 +3,7 @@ package io.github.lavyoung.lavshard.mybatis.internal.routing;
 import io.github.lavyoung.lavshard.core.api.route.ManagedRouteDecision;
 import io.github.lavyoung.lavshard.core.api.route.PassThroughDecision;
 import io.github.lavyoung.lavshard.core.api.route.SqlRouteDecision;
+import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
 import java.io.PrintWriter;
@@ -29,7 +30,8 @@ import java.util.logging.Logger;
  */
 public class LavShardRoutingDataSource implements DataSource {
 
-    private static final Logger LOGGER = Logger.getLogger(LavShardRoutingDataSource.class.getName());
+    private static final org.slf4j.Logger LOGGER = LoggerFactory.getLogger(LavShardRoutingDataSource.class);
+    private static final Logger PARENT_LOGGER = Logger.getLogger(LavShardRoutingDataSource.class.getName());
 
     private final Map<String, DataSource> dataSources;
 
@@ -112,10 +114,25 @@ public class LavShardRoutingDataSource implements DataSource {
         DataSource dataSource = dataSources.get(dataSourceId);
 
         if (dataSource == null) {
+            LOGGER.warn(
+                    "LavShard physical data source selection rejected: decision={}, dataSourceId={}, reason=UNKNOWN_DATA_SOURCE",
+                    decisionType(decision),
+                    dataSourceId
+            );
             throw new SQLException("Unknown dataSourceId: " + dataSourceId);
         }
 
+        LOGGER.debug(
+                "LavShard physical data source selected: decision={}, dataSourceId={}",
+                decisionType(decision),
+                dataSourceId
+        );
+
         return dataSource;
+    }
+
+    private static String decisionType(SqlRouteDecision decision) {
+        return decision instanceof ManagedRouteDecision ? "MANAGED" : "PASSTHROUGH";
     }
 
     private static String resolveDataSourceId(SqlRouteDecision decision) throws SQLException {
@@ -166,7 +183,7 @@ public class LavShardRoutingDataSource implements DataSource {
 
     @Override
     public Logger getParentLogger() throws SQLFeatureNotSupportedException {
-        return LOGGER;
+        return PARENT_LOGGER;
     }
 
     @Override

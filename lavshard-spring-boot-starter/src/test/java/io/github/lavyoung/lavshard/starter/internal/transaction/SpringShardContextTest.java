@@ -1,5 +1,8 @@
 package io.github.lavyoung.lavshard.starter.internal.transaction;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.core.read.ListAppender;
 import io.github.lavyoung.lavshard.core.api.algorithm.ShardBucket;
 import io.github.lavyoung.lavshard.core.api.exception.CrossShardTransactionException;
 import io.github.lavyoung.lavshard.core.api.route.*;
@@ -7,6 +10,7 @@ import io.github.lavyoung.lavshard.core.api.topology.QualifiedTableName;
 import io.github.lavyoung.lavshard.core.api.topology.ShardNode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -61,6 +65,50 @@ class SpringShardContextTest {
                 .isInstanceOf(CrossShardTransactionException.class)
                 .hasMessageContaining("ds0")
                 .hasMessageContaining("ds1");
+    }
+
+    @Test
+    void shouldLogTransactionBindingAndRejectionWithoutSqlText() {
+        Logger logger = (Logger) LoggerFactory.getLogger(SpringShardContext.class);
+        Level originalLevel = logger.getLevel();
+        ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+
+        try {
+            beginTransaction();
+            context.validate(managed("ds0", "rule-v1", "topology-v1"));
+
+            assertThatThrownBy(() -> context.validate(
+                    managed("ds1", "rule-v1", "topology-v1")
+            )).isInstanceOf(CrossShardTransactionException.class);
+
+            List<String> messages = appender.list.stream()
+                    .map(event -> event.getFormattedMessage())
+                    .toList();
+            assertThat(messages).anySatisfy(message -> assertThat(message)
+                    .contains(
+                            "transaction route bound",
+                            "decision=MANAGED",
+                            "dataSourceId=ds0",
+                            "ruleVersion=rule-v1",
+                            "topologyVersion=topology-v1"
+                    ));
+            assertThat(messages).anySatisfy(message -> assertThat(message)
+                    .contains(
+                            "reason=CROSS_DATA_SOURCE",
+                            "boundDataSourceId=ds0",
+                            "requestedDataSourceId=ds1"
+                    ));
+            assertThat(String.join("\n", messages))
+                    .doesNotContain("SELECT * FROM");
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(originalLevel);
+            appender.stop();
+        }
     }
 
     @Test

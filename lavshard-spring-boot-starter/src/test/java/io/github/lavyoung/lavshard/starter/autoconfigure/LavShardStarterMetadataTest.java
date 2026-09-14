@@ -42,7 +42,8 @@ class LavShardStarterMetadataTest {
         // Then
         assertThat(configurationClasses).containsExactly(
                 LavShardAutoConfiguration.class.getName(),
-                LavShardDataSourceAutoConfiguration.class.getName()
+                LavShardDataSourceAutoConfiguration.class.getName(),
+                LavShardHealthAutoConfiguration.class.getName()
         );
         assertThat(configurationClasses).doesNotHaveDuplicates();
     }

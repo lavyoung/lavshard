@@ -7,6 +7,8 @@ import io.github.lavyoung.lavshard.core.api.route.PassThroughDecision;
 import io.github.lavyoung.lavshard.core.api.route.SqlRouteDecision;
 import io.github.lavyoung.lavshard.core.api.route.TransactionRequirement;
 import io.github.lavyoung.lavshard.core.api.topology.QualifiedTableName;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -29,6 +31,8 @@ import java.util.Objects;
  * @date 2026/9/14
  */
 public final class SpringShardContext {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SpringShardContext.class);
 
     private final Object transactionResourceKey = new Object();
 
@@ -87,6 +91,7 @@ public final class SpringShardContext {
         boolean transactionActive = TransactionSynchronizationManager.isActualTransactionActive();
 
         if (transactionRequired && !transactionActive) {
+            LOGGER.warn("LavShard execution rejected: reason=TRANSACTION_REQUIRED");
             throw new TransactionRequiredException("SQL requires an active local transaction");
         }
     }
@@ -100,6 +105,7 @@ public final class SpringShardContext {
         TransactionRouteState state = new TransactionRouteState(route);
 
         TransactionSynchronizationManager.bindResource(transactionResourceKey, state);
+        logTransactionBinding(route);
 
         try {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -123,6 +129,24 @@ public final class SpringShardContext {
             TransactionSynchronizationManager.unbindResourceIfPossible(transactionResourceKey);
             throw exception;
         }
+    }
+
+    private static void logTransactionBinding(TransactionRoute route) {
+        if (route instanceof ManagedTransactionRoute managed) {
+            LOGGER.debug(
+                    "LavShard transaction route bound: decision=MANAGED, logicalTable={}, dataSourceId={}, ruleVersion={}, topologyVersion={}",
+                    managed.logicalTable(),
+                    managed.dataSourceId(),
+                    managed.ruleVersion(),
+                    managed.topologyVersion()
+            );
+            return;
+        }
+
+        LOGGER.debug(
+                "LavShard transaction route bound: decision=PASSTHROUGH, dataSourceId={}",
+                route.dataSourceId()
+        );
     }
 
     /**
@@ -226,6 +250,14 @@ public final class SpringShardContext {
             }
 
             if (!bound.equals(incoming)) {
+                LOGGER.warn(
+                        "LavShard transaction route rejected: reason=VERSION_CONFLICT, logicalTable={}, boundRuleVersion={}, requestedRuleVersion={}, boundTopologyVersion={}, requestedTopologyVersion={}",
+                        managed.logicalTable(),
+                        bound.ruleVersion(),
+                        incoming.ruleVersion(),
+                        bound.topologyVersion(),
+                        incoming.topologyVersion()
+                );
                 throw new CrossShardTransactionException("Transaction route for logicalTable " + managed.logicalTable() + " is already bound to ruleVersion " + bound.ruleVersion() + " and topologyVersion " + bound.topologyVersion() + " but attempted ruleVersion " + incoming.ruleVersion() + " and topologyVersion " + incoming.topologyVersion());
             }
         }
@@ -240,6 +272,12 @@ public final class SpringShardContext {
             if (dataSourceId.equals(route.dataSourceId())) {
                 return;
             }
+
+            LOGGER.warn(
+                    "LavShard transaction route rejected: reason=CROSS_DATA_SOURCE, boundDataSourceId={}, requestedDataSourceId={}",
+                    dataSourceId,
+                    route.dataSourceId()
+            );
 
             throw new CrossShardTransactionException("Transaction is already bound to " + "dataSourceId " + dataSourceId + " and cannot route to " + route.dataSourceId());
         }

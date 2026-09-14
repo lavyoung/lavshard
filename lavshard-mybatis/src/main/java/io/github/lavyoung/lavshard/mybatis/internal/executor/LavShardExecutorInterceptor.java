@@ -2,6 +2,7 @@ package io.github.lavyoung.lavshard.mybatis.internal.executor;
 
 import io.github.lavyoung.lavshard.core.api.exception.UnsupportedSqlException;
 import io.github.lavyoung.lavshard.core.api.route.ManagedRouteDecision;
+import io.github.lavyoung.lavshard.core.api.route.PassThroughDecision;
 import io.github.lavyoung.lavshard.core.api.route.RouteUnit;
 import io.github.lavyoung.lavshard.core.api.route.SqlRouteDecision;
 import io.github.lavyoung.lavshard.core.api.rule.RuleSnapshot;
@@ -17,6 +18,8 @@ import org.apache.ibatis.plugin.*;
 import org.apache.ibatis.reflection.SystemMetaObject;
 import org.apache.ibatis.session.ResultHandler;
 import org.apache.ibatis.session.RowBounds;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Proxy;
 import java.util.List;
@@ -52,6 +55,8 @@ import java.util.function.Supplier;
                 @Signature(type = Executor.class, method = "queryCursor", args = {MappedStatement.class, Object.class, RowBounds.class})
         })
 public final class LavShardExecutorInterceptor implements Interceptor {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(LavShardExecutorInterceptor.class);
 
     private static final String BATCH_REJECTION_MESSAGE = "MyBatis ExecutorType.BATCH is not supported in v0.1";
 
@@ -105,10 +110,14 @@ public final class LavShardExecutorInterceptor implements Interceptor {
         MappedStatement mappedStatement = (MappedStatement) invocation.getArgs()[0];
 
         if (!integrationScope.includes(mappedStatement.getId())) {
+            LOGGER.trace(
+                    "LavShard invocation skipped: statementId={}, reason=OUT_OF_SCOPE",
+                    mappedStatement.getId()
+            );
             return invocation.proceed();
         }
 
-        rejectBatchExecutor(invocation.getTarget());
+        rejectBatchExecutor(invocation.getTarget(), mappedStatement.getId());
 
         String methodName = invocation.getMethod().getName();
         int argumentCount = invocation.getArgs().length;
@@ -137,8 +146,12 @@ public final class LavShardExecutorInterceptor implements Interceptor {
      * @param target 当前 MyBatis Executor
      * @throws UnsupportedSqlException 使用 BatchExecutor 时抛出
      */
-    private static void rejectBatchExecutor(Object target) {
+    private static void rejectBatchExecutor(Object target, String statementId) {
         if (isBatchExecutor(target)) {
+            LOGGER.warn(
+                    "LavShard execution rejected: statementId={}, reason=BATCH_EXECUTOR_UNSUPPORTED",
+                    statementId
+            );
             throw new UnsupportedSqlException(BATCH_REJECTION_MESSAGE);
         }
     }
@@ -269,6 +282,7 @@ public final class LavShardExecutorInterceptor implements Interceptor {
      * @throws NullPointerException 规则快照提供器返回空值时抛出
      */
     private PreparedExecution prepare(MappedStatement mappedStatement, BoundSql boundSql) {
+        long startedAt = System.nanoTime();
         RuleSnapshot snapshot = Objects.requireNonNull(snapshotSupplier.get(), "snapshotSupplier returned null");
 
         MyBatisParameterValueExtractor extractor = new MyBatisParameterValueExtractor(mappedStatement.getConfiguration());
@@ -276,6 +290,8 @@ public final class LavShardExecutorInterceptor implements Interceptor {
         List<Object> parameterValues = extractor.extract(boundSql);
 
         SqlRouteDecision decision = routeEngine.decide(snapshot, boundSql.getSql(), parameterValues);
+
+        logRouteDecision(mappedStatement.getId(), decision, startedAt);
 
         if (!(decision instanceof ManagedRouteDecision managed)) {
             return new PreparedExecution(mappedStatement, boundSql, decision);
@@ -290,6 +306,57 @@ public final class LavShardExecutorInterceptor implements Interceptor {
         MappedStatement physicalMappedStatement = mappedStatementRewriter.rewrite(mappedStatement, physicalBoundSql);
 
         return new PreparedExecution(physicalMappedStatement, physicalBoundSql, decision);
+    }
+
+    /**
+     * 记录一次不包含 SQL 参数和 SQL 文本的路由结果。
+     *
+     * @param statementId MyBatis MappedStatement 标识
+     * @param decision    路由决策
+     * @param startedAt   路由准备开始的纳秒时间
+     */
+    private static void logRouteDecision(
+            String statementId,
+            SqlRouteDecision decision,
+            long startedAt
+    ) {
+        if (!LOGGER.isDebugEnabled()) {
+            return;
+        }
+
+        long elapsedMicros = (System.nanoTime() - startedAt) / 1_000L;
+
+        if (decision instanceof ManagedRouteDecision managed) {
+            RouteUnit unit = managed.routePlan().units().get(0);
+            LOGGER.debug(
+                    "LavShard route decided: statementId={}, decision=MANAGED, logicalTable={}, bucket={}, dataSourceId={}, actualTable={}, ruleVersion={}, topologyVersion={}, transactionRequirement={}, elapsedMicros={}",
+                    statementId,
+                    managed.logicalTable(),
+                    unit.target().bucket().value(),
+                    unit.target().node().dataSourceId(),
+                    unit.target().node().actualTable(),
+                    managed.routePlan().ruleVersion(),
+                    managed.routePlan().topologyVersion(),
+                    managed.transactionRequirement(),
+                    elapsedMicros
+            );
+            return;
+        }
+
+        if (decision instanceof PassThroughDecision passThrough) {
+            LOGGER.debug(
+                    "LavShard route decided: statementId={}, decision=PASSTHROUGH, dataSourceId={}, transactionRequirement={}, elapsedMicros={}",
+                    statementId,
+                    passThrough.dataSourceId(),
+                    passThrough.transactionRequirement(),
+                    elapsedMicros
+            );
+            return;
+        }
+
+        throw new IllegalArgumentException(
+                "Unsupported route decision type: " + decision.getClass().getName()
+        );
     }
 
     /**

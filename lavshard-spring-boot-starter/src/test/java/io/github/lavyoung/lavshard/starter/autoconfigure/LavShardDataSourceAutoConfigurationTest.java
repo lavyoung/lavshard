@@ -1,5 +1,8 @@
 package io.github.lavyoung.lavshard.starter.autoconfigure;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.core.read.ListAppender;
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.lavyoung.lavshard.core.api.algorithm.AlgorithmConfig;
 import io.github.lavyoung.lavshard.core.api.algorithm.ShardAlgorithm;
@@ -14,6 +17,7 @@ import io.github.lavyoung.lavshard.mybatis.internal.routing.MyBatisRouteContext;
 import io.github.lavyoung.lavshard.starter.internal.config.LavShardConfigurationSnapshot;
 import io.github.lavyoung.lavshard.starter.internal.datasource.LavShardManagedDataSourceRegistry;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
@@ -47,6 +51,46 @@ class LavShardDataSourceAutoConfigurationTest {
                             LavShardDataSourceAutoConfiguration.class,
                             DataSourceAutoConfiguration.class
                     ));
+
+    @Test
+    void shouldLogSafeRoutingDataSourceStartupSummary() {
+        Logger logger = (Logger) LoggerFactory.getLogger(
+                LavShardDataSourceAutoConfiguration.class
+        );
+        Level originalLevel = logger.getLevel();
+        ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.INFO);
+
+        try {
+            contextRunner
+                    .withUserConfiguration(PhysicalDataSourcesConfiguration.class)
+                    .withPropertyValues(validProperties("test_identity"))
+                    .run(context -> assertThat(context).hasNotFailed());
+
+            assertThat(appender.list)
+                    .singleElement()
+                    .satisfies(event -> assertThat(event.getFormattedMessage())
+                            .contains(
+                                    "routing data source initialized",
+                                    "dataSourceIds=[ds0, ds1]",
+                                    "defaultDataSourceId=ds0",
+                                    "managedTableCount=1",
+                                    "ordinaryTableCount=1"
+                            )
+                            .doesNotContain(
+                                    "jdbc:",
+                                    "password",
+                                    "username"
+                            ));
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(originalLevel);
+            appender.stop();
+        }
+    }
 
     @Test
     void shouldPublishPrimaryLazyRoutingDataSourceAndRouteAllDecisionTypes()

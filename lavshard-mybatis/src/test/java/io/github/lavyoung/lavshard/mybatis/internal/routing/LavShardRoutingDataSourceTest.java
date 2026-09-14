@@ -1,10 +1,13 @@
 package io.github.lavyoung.lavshard.mybatis.internal.routing;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.core.read.ListAppender;
 import io.github.lavyoung.lavshard.core.api.algorithm.ShardBucket;
 import io.github.lavyoung.lavshard.core.api.route.*;
 import io.github.lavyoung.lavshard.core.api.topology.QualifiedTableName;
 import io.github.lavyoung.lavshard.core.api.topology.ShardNode;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
 import java.io.PrintWriter;
@@ -87,6 +90,48 @@ class LavShardRoutingDataSourceTest {
 
         assertThat(ds0.connectionAttempts()).isZero();
         assertThat(dsDefault.connectionAttempts()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldLogPhysicalSelectionOnlyWhenConnectionIsMaterialized()
+            throws SQLException {
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(
+                        LavShardRoutingDataSource.class
+                );
+        Level originalLevel = logger.getLevel();
+        ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+
+        try {
+            TrackingDataSource ds1 = new TrackingDataSource("ds1");
+            Connection connection = routingDataSource(Map.of("ds1", ds1))
+                    .getConnection();
+
+            assertThat(appender.list).isEmpty();
+
+            try (MyBatisRouteContext.Scope ignored = routeContext.open(
+                    managedDecision("ds1")
+            )) {
+                assertThat(connection.getCatalog()).isEqualTo("ds1");
+            }
+
+            assertThat(appender.list)
+                    .singleElement()
+                    .satisfies(event -> assertThat(event.getFormattedMessage())
+                            .contains(
+                                    "physical data source selected",
+                                    "decision=MANAGED",
+                                    "dataSourceId=ds1"
+                            ));
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(originalLevel);
+            appender.stop();
+        }
     }
 
     @Test

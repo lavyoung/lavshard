@@ -356,7 +356,8 @@ class LavShardAutoConfigurationTest {
             assertThat(imports.lines())
                     .containsExactly(
                             LavShardAutoConfiguration.class.getName(),
-                            LavShardDataSourceAutoConfiguration.class.getName()
+                            LavShardDataSourceAutoConfiguration.class.getName(),
+                            LavShardHealthAutoConfiguration.class.getName()
                     );
         }
     }

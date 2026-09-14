@@ -149,6 +149,23 @@ java -jar lavshard-example/lavshard-example-multi-datasource/target/lavshard-exa
 
 详细决策见 [ADR-005：跨数据库事务采用 LOCAL_STRICT](docs/adr/ADR-005-local-strict-cross-database-transactions.md)。
 
+### 路由诊断日志
+
+LavShard 在 `INFO` 级别只输出一次不含连接信息的启动摘要。逐条 SQL 的路由结果、首次物理数据源选择和事务首次绑定位于 `DEBUG`
+级别；不受管理范围的 Mapper 跳过信息位于 `TRACE`。路由拒绝位于 `WARN`。
+
+```yaml
+logging:
+  level:
+    io.github.lavyoung.lavshard: info
+    io.github.lavyoung.lavshard.mybatis.internal.executor: debug
+    io.github.lavyoung.lavshard.mybatis.internal.routing: debug
+    io.github.lavyoung.lavshard.starter.internal.transaction: debug
+```
+
+诊断日志包含 `statementId`、决策类型、逻辑表、逻辑桶、`dataSourceId`、物理表、规则版本、拓扑版本和路由耗时。组件不会记录 SQL
+参数、完整 SQL、用户名、密码或 JDBC URL。
+
 ---
 
 ## 🧩 模块结构
