@@ -1,0 +1,56 @@
+{
+  "properties": [
+    {
+      "name": "lavshard.enabled",
+      "description": "是否启用 LavShard 自动配置."
+    },
+    {
+      "name": "lavshard.integration.default-data-source",
+      "description": "普通表透传和无表只读 SQL 使用的默认数据源 ID."
+    },
+    {
+      "name": "lavshard.integration.default-transaction-isolation",
+      "description": "逻辑连接和 Starter 托管连接池使用的默认事务隔离级别.",
+      "defaultValue": "repeatable-read"
+    },
+    {
+      "name": "lavshard.integration.managed-mapper-packages",
+      "description": "由 LavShard 管理的 MyBatis Mapper 包名或完整 namespace 集合."
+    },
+    {
+      "name": "lavshard.integration.ordinary-tables",
+      "description": "允许保持原 SQL 并路由到默认数据源的普通表集合."
+    },
+    {
+      "name": "lavshard.data-sources",
+      "description": "数据源 ID 到物理数据源配置的映射；每项必须且只能选择 bean-name 或 managed 模式."
+    },
+    {
+      "name": "lavshard.tables",
+      "description": "逻辑分片表到不可变规则、算法和物理拓扑配置的映射."
+    }
+  ],
+  "hints": [
+    {
+      "name": "lavshard.integration.default-transaction-isolation",
+      "values": [
+        {
+          "value": "read-uncommitted",
+          "description": "允许读取其他事务尚未提交的数据."
+        },
+        {
+          "value": "read-committed",
+          "description": "只允许读取其他事务已经提交的数据."
+        },
+        {
+          "value": "repeatable-read",
+          "description": "同一事务内对相同数据的重复读取保持一致，也是 LavShard 默认值."
+        },
+        {
+          "value": "serializable",
+          "description": "使用最严格的事务隔离级别."
+        }
+      ]
+    }
+  ]
+}
