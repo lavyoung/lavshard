@@ -1,5 +1,6 @@
 package io.github.lavyoung.lavshard.example.multi;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.lavyoung.lavshard.core.api.algorithm.AlgorithmConfig;
@@ -8,8 +9,8 @@ import io.github.lavyoung.lavshard.core.api.exception.CrossShardTransactionExcep
 import io.github.lavyoung.lavshard.core.internal.algorithm.Murmur3HashShardAlgorithm;
 import io.github.lavyoung.lavshard.example.multi.order.api.CreateOrderRequest;
 import io.github.lavyoung.lavshard.example.multi.order.service.OrderService;
-import io.github.lavyoung.lavshard.mybatis.internal.routing.LavShardRoutingDataSource;
 import io.github.lavyoung.lavshard.starter.internal.datasource.LavShardManagedDataSourceRegistry;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +20,7 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
+import javax.sql.DataSource;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -54,10 +56,13 @@ class MultiDataSourceApplicationTest {
     private OrderService orderService;
 
     @Autowired
-    private LavShardRoutingDataSource routingDataSource;
+    private DataSource routingDataSource;
 
     @Autowired
     private LavShardManagedDataSourceRegistry managedRegistry;
+
+    @Autowired
+    private SqlSessionFactory sqlSessionFactory;
 
     private HikariDataSource dataSource0;
     private HikariDataSource dataSource1;
@@ -75,6 +80,22 @@ class MultiDataSourceApplicationTest {
         jdbc1 = new JdbcTemplate(dataSource1);
         jdbc0.update("DELETE FROM t_order");
         jdbc1.update("DELETE FROM t_order");
+    }
+
+    @Test
+    void shouldIntegrateWithMyBatisPlusAndLavShardInterceptor() {
+        assertThat(sqlSessionFactory.getConfiguration())
+                .isInstanceOf(MybatisConfiguration.class);
+        assertThat(sqlSessionFactory.getConfiguration().getInterceptors())
+                .anySatisfy(interceptor -> assertThat(
+                        interceptor.getClass().getName()
+                ).isEqualTo(
+                        "io.github.lavyoung.lavshard.mybatis.internal."
+                                + "executor.LavShardExecutorInterceptor"
+                ));
+        assertThat(sqlSessionFactory.getConfiguration()
+                .getEnvironment().getDataSource())
+                .isSameAs(routingDataSource);
     }
 
     @Test

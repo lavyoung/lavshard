@@ -10,6 +10,7 @@ import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
@@ -31,7 +32,15 @@ import java.util.Map;
  * @version 0.1.0
  * @date 2026/09/12
  */
-@AutoConfiguration(after = LavShardAutoConfiguration.class, beforeName = {"org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration", "org.springframework.boot.autoconfigure.jdbc." + "DataSourceTransactionManagerAutoConfiguration"})
+@AutoConfiguration(
+        after = LavShardAutoConfiguration.class,
+        before = DataSourceAutoConfiguration.class,
+        beforeName = {
+                "org.mybatis.spring.boot.autoconfigure.MybatisAutoConfiguration",
+                "com.baomidou.mybatisplus.autoconfigure.MybatisPlusAutoConfiguration",
+                "org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration"
+        }
+)
 @ConditionalOnProperty(prefix = "lavshard", name = "enabled", havingValue = "true", matchIfMissing = true)
 public class LavShardDataSourceAutoConfiguration {
 

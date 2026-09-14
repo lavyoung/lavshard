@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- 避免向业务项目传递并锁定 MyBatis 最低编译版本，允许标准 MyBatis 或 MyBatis-Plus Starter 决定最终版本。
+- 确保 LavShard 托管数据源先于 Spring Boot 默认数据源自动配置注册，无需额外提供 `spring.datasource.url`。
+
 ### Planned
 
 - Range 分片算法。

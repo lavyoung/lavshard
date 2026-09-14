@@ -83,10 +83,34 @@ lavshard-core: Parse → Classify → Bind → Validate → Bucket → Topology 
 v0.1 的接入方式是：
 
 1. 引入 `lavshard-spring-boot-starter`。
-2. 引用已有 `DataSource` Bean，或使用 Starter 便捷模式创建物理数据源。
-3. 配置分片表、固定逻辑桶、Hash 版本和物理拓扑。
-4. 使用普通 MyBatis Mapper 编写支持矩阵内的单分片 SQL。
-5. Starter 自动装配，不要求额外添加 `@EnableLavShard`。
+2. 由业务项目显式选择标准 MyBatis Starter 或 MyBatis-Plus Starter，两者不要同时引入。
+3. 引用已有 `DataSource` Bean，或使用 Starter 便捷模式创建物理数据源。
+4. 配置分片表、固定逻辑桶、Hash 版本和物理拓扑。
+5. 使用 MyBatis Mapper 编写支持矩阵内的单分片 SQL。
+6. Starter 自动装配，不要求额外添加 `@EnableLavShard`。
+
+标准 MyBatis：
+
+```xml
+<dependency>
+    <groupId>org.mybatis.spring.boot</groupId>
+    <artifactId>mybatis-spring-boot-starter</artifactId>
+    <version>3.0.3</version>
+</dependency>
+```
+
+或者 MyBatis-Plus：
+
+```xml
+<dependency>
+    <groupId>com.baomidou</groupId>
+    <artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+    <version>3.5.17</version>
+</dependency>
+```
+
+MyBatis 的最终版本由业务项目及其选择的 Starter 管理。LavShard 以 MyBatis 3.5.14 作为最低编译基线，不向业务项目传递或强制该版本；MyBatis-Plus
+3.5.17 与其选择的 MyBatis 3.5.19 已通过示例启动、拦截器注册和 CRUD 验证。
 
 可直接运行两个示例：
 

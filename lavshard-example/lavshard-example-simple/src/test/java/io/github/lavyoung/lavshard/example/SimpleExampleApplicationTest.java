@@ -1,13 +1,14 @@
 package io.github.lavyoung.lavshard.example;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.lavyoung.lavshard.core.api.algorithm.AlgorithmConfig;
 import io.github.lavyoung.lavshard.core.api.algorithm.ShardValue;
 import io.github.lavyoung.lavshard.core.internal.algorithm.Murmur3HashShardAlgorithm;
 import io.github.lavyoung.lavshard.example.order.api.CreateOrderRequest;
 import io.github.lavyoung.lavshard.example.order.service.OrderService;
-import io.github.lavyoung.lavshard.mybatis.internal.routing.LavShardRoutingDataSource;
 import io.github.lavyoung.lavshard.starter.internal.datasource.LavShardManagedDataSourceRegistry;
+import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,10 +53,13 @@ class SimpleExampleApplicationTest {
     private OrderService orderService;
 
     @Autowired
-    private LavShardRoutingDataSource routingDataSource;
+    private DataSource routingDataSource;
 
     @Autowired
     private LavShardManagedDataSourceRegistry managedRegistry;
+
+    @Autowired
+    private SqlSessionFactory sqlSessionFactory;
 
     private JdbcTemplate physicalJdbc;
 
@@ -67,6 +71,22 @@ class SimpleExampleApplicationTest {
         for (String table : new String[]{"t_order_00", "t_order_01"}) {
             physicalJdbc.update("DELETE FROM " + table);
         }
+    }
+
+    @Test
+    void shouldIntegrateWithMyBatisPlusAndLavShardInterceptor() {
+        assertThat(sqlSessionFactory.getConfiguration())
+                .isInstanceOf(MybatisConfiguration.class);
+        assertThat(sqlSessionFactory.getConfiguration().getInterceptors())
+                .anySatisfy(interceptor -> assertThat(
+                        interceptor.getClass().getName()
+                ).isEqualTo(
+                        "io.github.lavyoung.lavshard.mybatis.internal."
+                                + "executor.LavShardExecutorInterceptor"
+                ));
+        assertThat(sqlSessionFactory.getConfiguration()
+                .getEnvironment().getDataSource())
+                .isSameAs(routingDataSource);
     }
 
     @Test

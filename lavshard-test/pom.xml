@@ -31,10 +31,6 @@
         <!-- ==================== 项目内部 ==================== -->
         <dependency>
             <groupId>io.github.lavyoung</groupId>
-            <artifactId>lavshard-core</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.github.lavyoung</groupId>
             <artifactId>lavshard-spring-boot-starter</artifactId>
         </dependency>
         <dependency>
@@ -55,6 +51,11 @@
         </dependency>
 
         <!-- ==================== MyBatis 集成 ==================== -->
+        <dependency>
+            <groupId>org.mybatis</groupId>
+            <artifactId>mybatis</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.mybatis</groupId>
             <artifactId>mybatis-spring</artifactId>

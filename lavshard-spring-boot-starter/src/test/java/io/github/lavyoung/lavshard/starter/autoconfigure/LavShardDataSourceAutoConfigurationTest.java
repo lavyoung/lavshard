@@ -16,6 +16,7 @@ import io.github.lavyoung.lavshard.starter.internal.datasource.LavShardManagedDa
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -43,7 +44,8 @@ class LavShardDataSourceAutoConfigurationTest {
             new ApplicationContextRunner()
                     .withConfiguration(AutoConfigurations.of(
                             LavShardAutoConfiguration.class,
-                            LavShardDataSourceAutoConfiguration.class
+                            LavShardDataSourceAutoConfiguration.class,
+                            DataSourceAutoConfiguration.class
                     ));
 
     @Test
@@ -378,7 +380,8 @@ class LavShardDataSourceAutoConfigurationTest {
     }
 
     @Test
-    void shouldCreateRoutingDataSourceWithOnlyManagedPools() throws SQLException {
+    void shouldCreateRoutingDataSourceBeforeBootDefaultWithoutSpringDatasourceUrl()
+            throws SQLException {
         contextRunner
                 .withPropertyValues(onlyManagedDataSourceProperties())
                 .run(context -> {
@@ -387,6 +390,7 @@ class LavShardDataSourceAutoConfigurationTest {
                             .hasSingleBean(LavShardManagedDataSourceRegistry.class);
                     assertThat(context)
                             .hasSingleBean(LavShardRoutingDataSource.class);
+                    assertThat(context).doesNotHaveBean("dataSource");
 
                     LavShardRoutingDataSource routing = context.getBean(
                             LavShardRoutingDataSource.class

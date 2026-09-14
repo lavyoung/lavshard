@@ -43,10 +43,11 @@
             <optional>true</optional>
         </dependency>
 
-        <!-- MyBatis Spring Boot 自动配置 -->
+        <!-- 标准 MyBatis 集成仅用于编译和默认兼容测试；业务项目显式选择标准版或 MyBatis-Plus。 -->
         <dependency>
             <groupId>org.mybatis.spring.boot</groupId>
             <artifactId>mybatis-spring-boot-starter</artifactId>
+            <optional>true</optional>
         </dependency>
 
         <!-- JDBC 支持（动态数据源基于 DataSource 抽象） -->
