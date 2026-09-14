@@ -81,7 +81,7 @@
         <junit.version>5.10.2</junit.version>
         <mockito.version>5.11.0</mockito.version>
         <assertj.version>3.25.3</assertj.version>
-        <testcontainers.version>1.19.7</testcontainers.version>
+        <testcontainers.version>1.21.4</testcontainers.version>
         <jmh.version>1.37</jmh.version>
 
         <!-- 插件版本 -->
@@ -116,6 +116,15 @@
                 <groupId>io.github.lavyoung</groupId>
                 <artifactId>lavshard-spring-boot-starter</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+
+            <!-- ===== Testcontainers BOM（优先于 Spring Boot BOM，固定发布验收版本） ===== -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
 
             <!-- ===== Spring Boot BOM（统一管理 Spring 生态版本） ===== -->
@@ -194,13 +203,6 @@
                 <artifactId>assertj-core</artifactId>
                 <version>${assertj.version}</version>
                 <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.testcontainers</groupId>
-                <artifactId>testcontainers-bom</artifactId>
-                <version>${testcontainers.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
             </dependency>
             <dependency>
                 <groupId>org.openjdk.jmh</groupId>

@@ -3,5 +3,4 @@
     <text x="10" y="40" font-family="Arial" font-size="32" font-weight="bold" fill="#ff5722">
         LavShard
     </text>
-    <circle cx="180" cy="30" r="8" fill="#ff5722"/>
 </svg>

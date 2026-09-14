@@ -4,16 +4,16 @@
 
 新增 `MySqlRoutingIT`，使用两个相互独立的 MySQL 8.0.36 Testcontainers 验证 LavShard 的真实驱动、数据库和事务行为。
 
-该测试是严格发布门禁。运行环境没有 Docker 时测试报错，不使用 `disabledWithoutDocker = true` 静默跳过；因此，没有容器能力的
-`mvn verify` 不代表项目回归失败，也不能被记录为 MySQL 验收通过。
+该测试是严格发布门禁。运行环境没有 Docker 时测试报错，不使用 `disabledWithoutDocker = true` 静默跳过；因此，没有容器能力时
+`mvn verify` 会失败，也不能被记录为 MySQL 验收通过。
 
-当前环境结果：
+2026-09-14 发布验收结果：
 
-- 测试源码已通过 Maven testCompile。
-- 不运行 `*IT` 的模块测试全部通过。
-- Failsafe 在测试类初始化阶段报 `Could not find a valid Docker environment`。
-- 本机未发现 Docker 命令，localhost:3306 也没有可用 MySQL 服务。
-- 24 个 MySQL 测试方法尚未进入执行，因此当前没有业务代码失败证据。
+- 通过 SSH 隧道连接 Linux Docker 29.1.3，Testcontainers 自动创建两个独立的 MySQL 8.0.36 实例。
+- `MySqlRoutingIT` 共 24 个用例，零失败、零错误、零跳过。
+- 仅分表、仅分库、分库分表三种拓扑及 `ExecutorType.SIMPLE`、`REUSE` 均已覆盖。
+- 临时 MySQL 和 Ryuk 容器在 JVM 退出后自动清理，没有写入已有开发数据库。
+- 验收期间未发现生产业务代码缺口。
 
 ## 覆盖矩阵
 
@@ -34,11 +34,12 @@
 5. 空分片键和多行 INSERT 在获取任何物理连接前失败。
 6. 每个物理表创建 `INDEX idx_user_id (user_id)`，避免验收 SQL 使用无索引分片条件。
 
-测试使用固定镜像标签 `mysql:8.0.36` 保证可复现。它是验收夹具版本，不代表生产环境数据库选型建议。
+测试使用固定镜像标签 `mysql:8.0.36` 保证可复现，并使用 Testcontainers 1.21.4 兼容近期 Docker
+Engine。它们是验收夹具版本，不代表生产环境数据库选型建议。
 
-## 业务代码编写结论
+## 业务代码结论
 
-本轮暂时不需要手写任何生产 Java 文件，也不要修改下列类型：
+本轮不需要修改任何生产 Java 文件。以下类型已经通过真实 MySQL 验收：
 
 - `LavShardExecutorInterceptor`
 - `LavShardRoutingDataSource`
@@ -46,7 +47,7 @@
 - `SpringShardContext`
 - SQL 分析器、路由计划器和改写器
 
-原因是当前失败发生在 Testcontainers 获取 Docker 客户端时，早于 `@BeforeEach`、MyBatis 装配、SQL 路由和数据库连接。此时没有证据表明业务实现缺失。
+测试已进入 MyBatis 装配、路由、物理连接、SQL 执行、缓存与事务断言阶段并全部通过，因此不能为本轮验收继续增加无证据的生产代码修改。
 
 如果 Docker 环境就绪后测试失败，应保留完整 Maven 输出和 `lavshard-test/target/failsafe-reports`。按失败阶段定位：
 
@@ -60,7 +61,7 @@
 | 回滚后仍有记录     | Spring 事务管理器与 MyBatis 是否引用同一逻辑 DataSource |
 | 缓存跨库错误       | 物理 CacheKey、dataSourceId、规则和拓扑版本维度         |
 
-只有得到上述业务阶段的真实失败后，再修改相应生产文件，并重新执行全部 24 个用例。不要为了让当前环境转绿而给测试添加自动跳过。
+后续只有得到业务阶段的真实失败后，才修改相应生产文件，并重新执行全部 24 个用例。不要为了让环境转绿而给测试添加自动跳过。
 
 ## Windows 运行环境
 
@@ -90,14 +91,12 @@ mvn -pl lavshard-test -am '-Dit.test=MySqlRoutingIT' '-Dfailsafe.failIfNoSpecifi
 mvn clean verify
 ```
 
-聚焦命令预期执行 24 个用例，必须为零失败、零错误、零跳过。完成前不能在 README 中把 MySQL CRUD、生成键、缓存和回滚标记为已验收。
+聚焦命令必须执行 24 个用例，并保持零失败、零错误、零跳过。README 中的 MySQL CRUD、生成键、缓存和回滚状态以该发布门禁结果为依据。
 
 ## 提交信息
 
-当前提交仅包含严格 MySQL 验收测试和本文：
+发布收口提交包含 Testcontainers 兼容、CI 和验收状态同步：
 
 ```text
-test(mysql): 补充分库分表 CRUD 与事务缓存验收
+chore(release): 完成 v0.1.0 CI 与发布验收收口
 ```
-
-若 Docker 环境就绪后暴露业务缺口，修复提交应根据实际问题命名，不要预先使用笼统的 `fix(mysql)`。
