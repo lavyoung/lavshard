@@ -36,17 +36,17 @@
 
 ## ✨ 特性
 
-| 特性 | 说明 | 状态 |
-| :--- | :--- | :---: |
-| 可信单分片闭环 | Hash + 固定逻辑桶 + 静态拓扑 | 🚧 开发中 |
-| 分片形态 | 统一拓扑模型覆盖仅分表、仅分库、分库 + 分表 | 🚧 v0.1 开发中 |
-| MyBatis 集成 | 参数绑定、SQL 改写、缓存与事务安全 | 📋 规划中 |
-| Spring Boot Starter | 自动配置、配置校验与用户 Bean 退让 | 📋 规划中 |
-| Range / 自定义算法 | 结构化 Range 规则与算法 SPI | 📋 v0.2 |
-| 多路由读取 | 受限 `IN` 拆分与无序结果拼接 | 📋 v0.3 |
-| 规则治理 | 版本、审计、回滚和安全热更新 | 📋 v0.4 |
-| PostgreSQL / JDBC | 第二方言与原生 JDBC 适配器 | 🔭 候选 |
-| 分布式事务与通用结果合并 | 不属于默认内核范围 | ⛔ 非目标 |
+| 特性                | 说明                                        |      状态      |
+|:--------------------|:--------------------------------------------|:--------------:|
+| 可信单分片闭环      | Hash + 固定逻辑桶 + 静态拓扑                |   🚧 开发中    |
+| 分片形态            | 统一拓扑模型覆盖仅分表、仅分库、分库 + 分表 | 🚧 v0.1 开发中 |
+| MyBatis 集成        | 参数绑定、SQL 改写、缓存与事务安全          | 🚧 v0.1 验收中 |
+| Spring Boot Starter | 自动配置、配置校验与用户 Bean 退让          | 🚧 v0.1 验收中 |
+| Range / 自定义算法  | 结构化 Range 规则与算法 SPI                 |    📋 v0.2     |
+| 多路由读取          | 受限 `IN` 拆分与无序结果拼接                |    📋 v0.3     |
+| 规则治理            | 版本、审计、回滚和安全热更新                |    📋 v0.4     |
+| PostgreSQL / JDBC   | 第二方言与原生 JDBC 适配器                  |    🔭 候选     |
+| 分布式事务协调器    | 不在内核自研；后续只评估外部协调器适配      |   ⛔ 非目标    |
 
 ---
 
@@ -95,6 +95,19 @@ v0.1 的目标体验是：
 - 单个本地事务：只能绑定一个物理数据库和一个兼容规则/拓扑版本。
 
 精确支持范围见 [v0.1 SQL 支持矩阵](docs/design/v0.1.0/v0.1-sql-support-matrix.md)。
+
+### 跨库事务与不同分片键
+
+不同逻辑表可以使用不同分片键，也可以在彼此独立的调用中路由到不同数据库。v0.1 限制的是 Spring 本地事务的资源边界：事务第一次路由后固定一个
+`dataSourceId`，后续 SQL 命中其他数据库时，在获取第二个物理连接前抛出 `CrossShardTransactionException`。
+
+- 不同逻辑表最终命中同一 `dataSourceId`：可以分别执行多条 SQL，并由一个本地事务提交或回滚。
+- 不同逻辑表最终命中不同 `dataSourceId`：可以在独立事务中执行，但不能宣称一个本地事务具有跨库原子性。
+- 可接受最终一致的流程：优先采用 Transactional Outbox、幂等消费、重试与对账；长流程可以使用 Saga。
+- 必须跨库强一致的短事务：评估 XA；库存、余额、额度等需要资源预留的核心流程评估 TCC。
+- LavShard 不提供无协调器的 `LOCAL_BEST_EFFORT` 模式，也不自研 XA、TCC、Saga 或事务恢复日志；未来只考虑可选的外部协调器适配模块。
+
+详细决策见 [ADR-005：跨数据库事务采用 LOCAL_STRICT](docs/adr/ADR-005-local-strict-cross-database-transactions.md)。
 
 ---
 
@@ -190,24 +203,6 @@ mvn clean install -pl lavshard-core -am
 ## 📄 许可证
 
 本项目基于 [Apache License 2.0](./LICENSE) 发布。
-
-```text
-Copyright 2026 lavyoung
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-```
-
----
 
 ## 📮 联系
 
