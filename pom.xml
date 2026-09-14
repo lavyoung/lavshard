@@ -417,6 +417,8 @@
                     <artifactId>spotless-maven-plugin</artifactId>
                     <version>${spotless-maven-plugin.version}</version>
                     <configuration>
+                        <!-- v0.1 发布候选格式基线；后续被修改的 Java 文件必须满足规则。 -->
+                        <ratchetFrom>bdf3275</ratchetFrom>
                         <java>
                             <removeUnusedImports/>
                             <trimTrailingWhitespace/>

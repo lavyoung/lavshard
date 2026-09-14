@@ -29,7 +29,6 @@
         <maven.install.skip>true</maven.install.skip>
         <gpg.skip>true</gpg.skip>
         <jacoco.skip>true</jacoco.skip>
-        <spotless.check.skip>true</spotless.check.skip>
     </properties>
 
 </project>

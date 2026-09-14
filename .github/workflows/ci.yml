@@ -15,6 +15,20 @@ permissions:
   contents: read
 
 jobs:
+  dependency-review:
+    name: Dependency vulnerability review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          fail-on-scopes: runtime
+
   verify:
     name: Java 17 / Maven verify
     runs-on: ubuntu-latest
@@ -23,6 +37,8 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
@@ -33,6 +49,9 @@ jobs:
 
       - name: Show Docker environment
         run: docker version
+
+      - name: Check changed Java formatting
+        run: mvn --batch-mode --no-transfer-progress spotless:check
 
       - name: Verify all modules
         run: mvn --batch-mode --no-transfer-progress clean verify
