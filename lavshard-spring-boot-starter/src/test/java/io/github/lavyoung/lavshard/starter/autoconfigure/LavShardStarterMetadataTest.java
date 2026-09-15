@@ -228,7 +228,11 @@ class LavShardStarterMetadataTest {
         JsonNode property = properties.get(name);
         assertThat(property).as(name).isNotNull();
         assertThat(property.path("type").asText()).as(name).isEqualTo(type);
-        if (defaultValue != null) {
+        if (defaultValue instanceof Number number) {
+            assertThat(property.path("defaultValue").decimalValue())
+                    .as(name)
+                    .isEqualByComparingTo(number.toString());
+        } else if (defaultValue != null) {
             assertThat(property.path("defaultValue"))
                     .as(name)
                     .isEqualTo(OBJECT_MAPPER.valueToTree(defaultValue));
