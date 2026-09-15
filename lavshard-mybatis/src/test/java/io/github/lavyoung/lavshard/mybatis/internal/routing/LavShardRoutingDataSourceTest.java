@@ -26,7 +26,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.logging.Logger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -718,9 +717,11 @@ class LavShardRoutingDataSourceTest {
         }
 
         @Override
-        public Logger getParentLogger()
+        public java.util.logging.Logger getParentLogger()
                 throws SQLFeatureNotSupportedException {
-            return Logger.getLogger(TrackingDataSource.class.getName());
+            return java.util.logging.Logger.getLogger(
+                    TrackingDataSource.class.getName()
+            );
         }
 
         @Override
