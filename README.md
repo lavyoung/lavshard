@@ -85,7 +85,7 @@ v0.1 的接入方式是：
 1. 引入 `lavshard-spring-boot-starter`。
 2. 由业务项目显式选择标准 MyBatis Starter 或 MyBatis-Plus Starter，两者不要同时引入。
 3. 引用已有 `DataSource` Bean，或使用 Starter 便捷模式创建物理数据源。
-4. 配置分片表、固定逻辑桶、Hash 版本和物理拓扑。
+4. 定义可复用布局；普通业务表通常只需要声明分片列。
 5. 使用 MyBatis Mapper 编写支持矩阵内的单分片 SQL。
 6. Starter 自动装配，不要求额外添加 `@EnableLavShard`。
 
@@ -111,6 +111,40 @@ v0.1 的接入方式是：
 
 MyBatis 的最终版本由业务项目及其选择的 Starter 管理。LavShard 以 MyBatis 3.5.14 作为最低编译基线，不向业务项目传递或强制该版本；MyBatis-Plus
 3.5.17 与其选择的 MyBatis 3.5.19 已通过示例启动、拦截器注册和 CRUD 验证。
+
+推荐使用布局模板统一描述物理拓扑。下面的配置表示两个数据库、每库四张表和 1024 个固定逻辑桶；业务表只声明各自的分片列：
+
+```yaml
+lavshard:
+  integration:
+    default-data-source: ds0
+
+  data-sources:
+    ds0:
+      bean-name: orderDataSource0
+    ds1:
+      bean-name: orderDataSource1
+
+  defaults:
+    layout: standard
+
+  layouts:
+    standard:
+      version: standard-v1
+      data-source-ids: [ ds0, ds1 ]
+      tables-per-data-source: 4
+      bucket-count: 1024
+
+  tables:
+    t_order:
+      sharding-column: user_id
+    t_payment:
+      sharding-column: order_id
+```
+
+默认生成 `t_order_00` 至 `t_order_03`。纯分库且各库物理表同名时，设置
+`tables-per-data-source: 1` 和 `table-suffix.enabled: false`。布局的 `version`、数据源顺序、逻辑桶数量、Hash
+版本和后缀规则都属于数据定位契约；已有数据后不能直接修改这些配置来代替数据迁移。需要精确控制每个逻辑桶归属时，仍可使用完整显式拓扑模式。
 
 可直接运行两个示例：
 

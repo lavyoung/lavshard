@@ -417,7 +417,7 @@ LavShardException
 
 ## 7. 配置模型
 
-推荐优先引用应用中已有的数据源 Bean，Starter 管理连接池作为便捷模式：
+推荐优先引用应用中已有的数据源 Bean，并使用可复用布局模板生成静态拓扑；Starter 管理连接池作为便捷模式：
 
 ```yaml
 lavshard:
@@ -433,33 +433,32 @@ lavshard:
     ds1:
       bean-name: orderDataSource1
 
+  defaults:
+    layout: standard
+
+  layouts:
+    standard:
+      version: standard-v1
+      data-source-ids: [ds0, ds1]
+      tables-per-data-source: 2
+      bucket-count: 1024
+
   tables:
     t_order:
-      rule-version: order-rule-v1
       sharding-column: user_id
-      algorithm:
-        name: hash_mod
-        hash-version: murmur3_32_v1
-      topology:
-        version: order-topology-v1
-        bucket-count: 1024
-        nodes:
-          order-00: {data-source: ds0, actual-table: t_order_00}
-          order-01: {data-source: ds0, actual-table: t_order_01}
-          order-02: {data-source: ds1, actual-table: t_order_00}
-          order-03: {data-source: ds1, actual-table: t_order_01}
-        initial-placement:
-          strategy: round-robin
-          ordered-node-ids: [order-00, order-01, order-02, order-03]
+    t_payment:
+      sharding-column: order_id
 ```
 
 配置原则：
 
 - `bucket-count` 和 `hash-version` 是数据定位的持久化契约。
-- `rule-version` 和 `topology.version` 必须显式填写，不能用启动时间或随机值生成。
-- `nodeId` 是稳定物理节点身份，不能依赖 Map 或 YAML 的自然顺序。
-- `initial-placement` 只用于首次生成完整桶映射；拓扑快照保存显式的 `bucketId → nodeId` 结果。
-- 已存在数据后禁止重新执行初始布局覆盖当前桶映射。
+- 布局的 `version` 必须显式填写，不能使用启动时间或随机值；编译器据此生成每张表的稳定规则版本与拓扑版本。
+- `data-source-ids` 的列表顺序是持久化拓扑契约，不依赖数据源 Map 或 YAML Map 的遍历顺序。
+- 默认后缀为 `_00` 起始的两位数字。纯分库使用 `tables-per-data-source: 1` 与 `table-suffix.enabled: false`，各库物理表名保持为逻辑表名。
+- 布局模式在启动时将物理节点和 `bucketId → nodeId` 轮询映射完整展开，Core 热路径只读取最终不可变拓扑。
+- 已存在数据后禁止修改布局版本、数据源顺序、桶数量、Hash 版本或后缀语义覆盖当前定位；这些变化必须走独立数据迁移流程。
+- 需要非轮询桶归属或不规则物理表名时使用专家模式，显式填写 `rule-version`、算法、拓扑版本、节点和完整桶映射。
 - 算法配置使用结构化对象，不使用难校验的压缩字符串。
 - 启动时校验规则、数据源、桶映射、物理表和算法是否一致。
 - 普通表必须进入显式允许列表；未知表在 v0.1 固定拒绝，避免规则遗漏时误访问默认库。

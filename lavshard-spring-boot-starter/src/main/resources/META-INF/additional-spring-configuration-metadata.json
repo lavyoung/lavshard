@@ -26,6 +26,49 @@
       "description": "数据源 ID 到物理数据源配置的映射；每项必须且只能选择 bean-name 或 managed 模式."
     },
     {
+      "name": "lavshard.data-sources.*.bean-name",
+      "type": "java.lang.String",
+      "description": "应用提供的 DataSource Bean 名称；不能与 managed 同时配置."
+    },
+    {
+      "name": "lavshard.data-sources.*.managed.url",
+      "type": "java.lang.String",
+      "description": "Starter 托管物理数据源的 JDBC URL."
+    },
+    {
+      "name": "lavshard.data-sources.*.managed.username",
+      "type": "java.lang.String",
+      "description": "Starter 托管物理数据源的用户名."
+    },
+    {
+      "name": "lavshard.data-sources.*.managed.password",
+      "type": "java.lang.String",
+      "description": "Starter 托管物理数据源的密码；生产环境应通过外部安全配置注入."
+    },
+    {
+      "name": "lavshard.data-sources.*.managed.driver-class-name",
+      "type": "java.lang.String",
+      "description": "JDBC 驱动类名；未配置时由 JDBC URL 和驱动实现推断."
+    },
+    {
+      "name": "lavshard.data-sources.*.managed.maximum-pool-size",
+      "type": "java.lang.Integer",
+      "description": "Starter 托管 HikariCP 连接池的最大连接数.",
+      "defaultValue": 10
+    },
+    {
+      "name": "lavshard.data-sources.*.managed.minimum-idle",
+      "type": "java.lang.Integer",
+      "description": "Starter 托管 HikariCP 连接池的最小空闲连接数.",
+      "defaultValue": 10
+    },
+    {
+      "name": "lavshard.data-sources.*.managed.connection-timeout",
+      "type": "java.lang.Long",
+      "description": "从 Starter 托管连接池获取连接的最长等待毫秒数.",
+      "defaultValue": 30000
+    },
+    {
       "name": "lavshard.defaults",
       "description": "分片表默认配置，可指定未显式声明布局的表所使用的默认布局."
     },
@@ -38,8 +81,115 @@
       "description": "可复用分片布局模板；启动时展开为完整、稳定且不可变的物理拓扑."
     },
     {
+      "name": "lavshard.layouts.*.version",
+      "type": "java.lang.String",
+      "description": "布局的稳定版本；参与生成规则版本和拓扑版本，禁止使用时间戳或随机值."
+    },
+    {
+      "name": "lavshard.layouts.*.data-source-ids",
+      "type": "java.util.List<java.lang.String>",
+      "description": "参与布局的数据源 ID 有序列表；列表顺序属于持久化数据定位契约."
+    },
+    {
+      "name": "lavshard.layouts.*.tables-per-data-source",
+      "type": "java.lang.Integer",
+      "description": "每个物理数据源包含的分片表数量；关闭表后缀时必须为 1."
+    },
+    {
+      "name": "lavshard.layouts.*.bucket-count",
+      "type": "java.lang.Integer",
+      "description": "固定逻辑桶数量；必须大于等于布局生成的物理节点数量."
+    },
+    {
+      "name": "lavshard.layouts.*.algorithm.name",
+      "type": "java.lang.String",
+      "description": "布局使用的分片算法注册名.",
+      "defaultValue": "hash_mod"
+    },
+    {
+      "name": "lavshard.layouts.*.algorithm.hash-version",
+      "type": "java.lang.String",
+      "description": "布局使用的稳定 Hash 语义版本.",
+      "defaultValue": "murmur3_32_v1"
+    },
+    {
+      "name": "lavshard.layouts.*.table-suffix.enabled",
+      "type": "java.lang.Boolean",
+      "description": "是否为逻辑表名追加数字后缀；纯分库同名表模式应关闭.",
+      "defaultValue": true
+    },
+    {
+      "name": "lavshard.layouts.*.table-suffix.separator",
+      "type": "java.lang.String",
+      "description": "逻辑表名与数字后缀之间的分隔符.",
+      "defaultValue": "_"
+    },
+    {
+      "name": "lavshard.layouts.*.table-suffix.start",
+      "type": "java.lang.Integer",
+      "description": "第一个物理表数字后缀的起始编号.",
+      "defaultValue": 0
+    },
+    {
+      "name": "lavshard.layouts.*.table-suffix.width",
+      "type": "java.lang.Integer",
+      "description": "数字后缀的最小补零宽度.",
+      "defaultValue": 2
+    },
+    {
+      "name": "lavshard.layouts.*.placement-strategy",
+      "type": "io.github.lavyoung.lavshard.starter.autoconfigure.config.LavShardProperties$PlacementStrategy",
+      "description": "布局首次展开时使用的逻辑桶放置策略.",
+      "defaultValue": "round-robin"
+    },
+    {
       "name": "lavshard.tables",
       "description": "逻辑分片表配置；可以引用布局模板，也可以声明完整显式拓扑."
+    },
+    {
+      "name": "lavshard.tables.*.rule-version",
+      "type": "java.lang.String",
+      "description": "专家模式下显式指定的稳定规则版本；布局模式自动生成."
+    },
+    {
+      "name": "lavshard.tables.*.sharding-column",
+      "type": "java.lang.String",
+      "description": "逻辑表的分片列名称."
+    },
+    {
+      "name": "lavshard.tables.*.layout",
+      "type": "java.lang.String",
+      "description": "表级布局名称；未配置时继承 lavshard.defaults.layout."
+    },
+    {
+      "name": "lavshard.tables.*.algorithm.name",
+      "type": "java.lang.String",
+      "description": "专家模式下显式指定的分片算法注册名."
+    },
+    {
+      "name": "lavshard.tables.*.algorithm.hash-version",
+      "type": "java.lang.String",
+      "description": "专家模式下显式指定的稳定 Hash 语义版本."
+    },
+    {
+      "name": "lavshard.tables.*.topology.version",
+      "type": "java.lang.String",
+      "description": "专家模式下显式指定的稳定拓扑版本."
+    },
+    {
+      "name": "lavshard.tables.*.topology.bucket-count",
+      "type": "java.lang.Integer",
+      "description": "专家模式下显式指定的固定逻辑桶数量."
+    },
+    {
+      "name": "lavshard.tables.*.topology.bucket-placements",
+      "type": "java.util.Map<java.lang.Integer,java.lang.String>",
+      "description": "专家模式下逻辑桶 ID 到稳定物理节点 ID 的完整映射."
+    },
+    {
+      "name": "lavshard.tables.*.topology.nodes",
+      "type": "java.util.Map<java.lang.String,io.github.lavyoung.lavshard.starter.autoconfigure.config.LavShardProperties$Node>",
+      "description": "专家模式下物理节点 ID 到数据源和物理表的映射."
     }
   ],
   "hints": [
@@ -69,7 +219,43 @@
       "values": [
         {
           "value": "round-robin",
-          "description": "按 data-source-ids 和物理表后缀的确定顺序轮询放置逻辑桶."
+          "description": "按数据源顺序和物理表顺序轮询放置逻辑桶."
+        }
+      ]
+    },
+    {
+      "name": "lavshard.layouts.*.algorithm.name",
+      "values": [
+        {
+          "value": "hash_mod",
+          "description": "使用稳定 Hash 计算固定逻辑桶."
+        }
+      ]
+    },
+    {
+      "name": "lavshard.layouts.*.algorithm.hash-version",
+      "values": [
+        {
+          "value": "murmur3_32_v1",
+          "description": "LavShard v0.1 固定的 Murmur3 32 位 Hash 语义版本."
+        }
+      ]
+    },
+    {
+      "name": "lavshard.tables.*.algorithm.name",
+      "values": [
+        {
+          "value": "hash_mod",
+          "description": "使用稳定 Hash 计算固定逻辑桶."
+        }
+      ]
+    },
+    {
+      "name": "lavshard.tables.*.algorithm.hash-version",
+      "values": [
+        {
+          "value": "murmur3_32_v1",
+          "description": "LavShard v0.1 固定的 Murmur3 32 位 Hash 语义版本."
         }
       ]
     }
