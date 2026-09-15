@@ -7,6 +7,7 @@ import io.github.lavyoung.lavshard.core.api.algorithm.ShardValue;
 import io.github.lavyoung.lavshard.core.internal.algorithm.Murmur3HashShardAlgorithm;
 import io.github.lavyoung.lavshard.example.order.api.CreateOrderRequest;
 import io.github.lavyoung.lavshard.example.order.service.OrderService;
+import io.github.lavyoung.lavshard.starter.autoconfigure.config.LavShardProperties;
 import io.github.lavyoung.lavshard.starter.internal.datasource.LavShardManagedDataSourceRegistry;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.BeforeEach;
@@ -61,6 +62,9 @@ class SimpleExampleApplicationTest {
     @Autowired
     private SqlSessionFactory sqlSessionFactory;
 
+    @Autowired
+    private LavShardProperties lavShardProperties;
+
     private JdbcTemplate physicalJdbc;
 
     @BeforeEach
@@ -87,6 +91,27 @@ class SimpleExampleApplicationTest {
         assertThat(sqlSessionFactory.getConfiguration()
                 .getEnvironment().getDataSource())
                 .isSameAs(routingDataSource);
+    }
+
+    @Test
+    void shouldUseConciseSingleDatabaseTableLayout() {
+        LavShardProperties.Layout layout =
+                lavShardProperties.layouts().get("single-database-tables");
+
+        assertThat(lavShardProperties.defaults().layout())
+                .isEqualTo("single-database-tables");
+        assertThat(layout).isNotNull();
+        assertThat(layout.dataSourceIds()).containsExactly("ds0");
+        assertThat(layout.tablesPerDataSource()).isEqualTo(2);
+        assertThat(layout.bucketCount()).isEqualTo(2);
+        assertThat(layout.tableSuffix().enabled()).isTrue();
+        assertThat(lavShardProperties.tables().get("t_order"))
+                .satisfies(table -> {
+                    assertThat(table.shardingColumn()).isEqualTo("user_id");
+                    assertThat(table.ruleVersion()).isEmpty();
+                    assertThat(table.layout()).isEmpty();
+                    assertThat(table.topology().nodes()).isEmpty();
+                });
     }
 
     @Test

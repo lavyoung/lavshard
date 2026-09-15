@@ -23,6 +23,8 @@ import java.util.*;
  */
 public final class LavShardConfigurationCompiler {
 
+    private final LavShardLayoutCompiler layoutCompiler = new LavShardLayoutCompiler();
+
     /**
      * 编译外部配置。
      *
@@ -35,18 +37,22 @@ public final class LavShardConfigurationCompiler {
         Objects.requireNonNull(properties, "properties must not be null");
 
         CompiledDataSources dataSources = compileDataSources(properties.dataSources());
+        Set<String> dataSourceIds = dataSources.dataSourceIds();
 
         String defaultDataSourceId = requireText(properties.integration().defaultDataSource(), "lavshard.integration.default-data-source must not be blank");
 
-        if (!dataSources.dataSourceIds().contains(defaultDataSourceId)) {
-            throw new ConfigurationException("lavshard.integration.default-data-source " + "references unknown dataSourceId: " + defaultDataSourceId);
+        if (!dataSourceIds.contains(defaultDataSourceId)) {
+            throw new ConfigurationException("lavshard.integration.default-data-source references " + "unknown dataSourceId: " + defaultDataSourceId);
         }
 
         int defaultTransactionIsolation = properties.integration().defaultTransactionIsolation().jdbcLevel();
 
         Set<QualifiedTableName> ordinaryTables = compileOrdinaryTables(properties.integration().ordinaryTables());
 
-        List<TableRule> rules = compileRules(properties.tables(), dataSources.dataSourceIds());
+        Map<String, LavShardProperties.Layout> layouts = compileLayouts(properties.layouts(), dataSourceIds);
+        String defaultLayout = compileDefaultLayout(properties.defaults(), layouts);
+
+        List<TableRule> rules = compileRules(properties.tables(), dataSourceIds, layouts, defaultLayout);
 
         rejectManagedOrdinaryOverlap(rules, ordinaryTables);
 
@@ -89,7 +95,7 @@ public final class LavShardConfigurationCompiler {
 
         for (String configuredTable : configuredTables) {
             if (configuredTable == null || configuredTable.isBlank()) {
-                throw new ConfigurationException("lavshard.integration.ordinary-tables must not contain blank table names");
+                throw new ConfigurationException("lavshard.integration.ordinary-tables must not " + "contain blank table names");
             }
 
             ordinaryTables.add(new QualifiedTableName(configuredTable));
@@ -98,21 +104,92 @@ public final class LavShardConfigurationCompiler {
         return Set.copyOf(ordinaryTables);
     }
 
-    private static List<TableRule> compileRules(Map<String, LavShardProperties.Table> configuredTables, Set<String> dataSourceIds) {
+    private Map<String, LavShardProperties.Layout> compileLayouts(Map<String, LavShardProperties.Layout> configuredLayouts, Set<String> dataSourceIds) {
+        Map<String, LavShardProperties.Layout> compiled = new LinkedHashMap<>();
+
+        for (Map.Entry<String, LavShardProperties.Layout> entry : configuredLayouts.entrySet()) {
+            String layoutName = requireText(entry.getKey(), "lavshard.layouts must not contain blank layout name");
+            LavShardProperties.Layout layout = Objects.requireNonNull(entry.getValue(), "layout configuration must not be null");
+
+            layoutCompiler.validate(layoutName, layout, dataSourceIds);
+            compiled.put(layoutName, layout);
+        }
+
+        return Map.copyOf(compiled);
+    }
+
+    private static String compileDefaultLayout(LavShardProperties.Defaults defaults, Map<String, LavShardProperties.Layout> layouts) {
+        String defaultLayout = defaults.layout();
+
+        if (defaultLayout.isEmpty()) {
+            return "";
+        }
+
+        if (defaultLayout.isBlank()) {
+            throw new ConfigurationException("lavshard.defaults.layout must not be blank");
+        }
+
+        if (!layouts.containsKey(defaultLayout)) {
+            throw new ConfigurationException("lavshard.defaults.layout references unknown layout: " + defaultLayout);
+        }
+
+        return defaultLayout;
+    }
+
+    private List<TableRule> compileRules(Map<String, LavShardProperties.Table> configuredTables, Set<String> dataSourceIds, Map<String, LavShardProperties.Layout> layouts, String defaultLayout) {
         List<TableRule> tableRules = new ArrayList<>(configuredTables.size());
 
         for (Map.Entry<String, LavShardProperties.Table> entry : configuredTables.entrySet()) {
-            String logicalTable = requireText(entry.getKey(), "lavshard.tables must not contain blank logical table names");
-
+            String logicalTable = requireText(entry.getKey(), "lavshard.tables must not contain blank " + "logical table names");
             LavShardProperties.Table table = Objects.requireNonNull(entry.getValue(), "table configuration must not be null");
 
-            tableRules.add(compileRule(logicalTable, table, dataSourceIds));
+            tableRules.add(compileRule(logicalTable, table, dataSourceIds, layouts, defaultLayout));
         }
 
         return List.copyOf(tableRules);
     }
 
-    private static TableRule compileRule(String logicalTable, LavShardProperties.Table table, Set<String> dataSourceIds) {
+    private TableRule compileRule(String logicalTable, LavShardProperties.Table table, Set<String> dataSourceIds, Map<String, LavShardProperties.Layout> layouts, String defaultLayout) {
+        String tablePath = "lavshard.tables." + logicalTable;
+        String shardingColumn = requireText(table.shardingColumn(), tablePath + ".sharding-column must not be blank");
+
+        boolean hasExplicitTopology = hasExplicitTopology(table);
+
+        if (!table.layout().isEmpty()) {
+            if (table.layout().isBlank()) {
+                throw new ConfigurationException(tablePath + ".layout must not be blank");
+            }
+
+            if (hasExplicitTopology) {
+                throw new ConfigurationException(tablePath + " must configure either layout or " + "explicit topology, not both");
+            }
+
+            LavShardProperties.Layout layout = layouts.get(table.layout());
+            if (layout == null) {
+                throw new ConfigurationException(tablePath + ".layout references unknown layout: " + table.layout());
+            }
+
+            return layoutCompiler.compile(logicalTable, shardingColumn, table.layout(), layout, dataSourceIds);
+        }
+
+        if (hasExplicitTopology) {
+            return compileExplicitRule(logicalTable, table, dataSourceIds);
+        }
+
+        if (!defaultLayout.isEmpty()) {
+            return layoutCompiler.compile(logicalTable, shardingColumn, defaultLayout, layouts.get(defaultLayout), dataSourceIds);
+        }
+
+        throw new ConfigurationException(tablePath + " must reference a layout or configure " + "explicit topology");
+    }
+
+    private static boolean hasExplicitTopology(LavShardProperties.Table table) {
+        LavShardProperties.Topology topology = table.topology();
+
+        return !table.ruleVersion().isEmpty() || !table.algorithm().name().isEmpty() || !table.algorithm().hashVersion().isEmpty() || !topology.version().isEmpty() || topology.bucketCount() != 0 || !topology.bucketPlacements().isEmpty() || !topology.nodes().isEmpty();
+    }
+
+    private static TableRule compileExplicitRule(String logicalTable, LavShardProperties.Table table, Set<String> dataSourceIds) {
         String tablePath = "lavshard.tables." + logicalTable;
         String ruleVersion = requireText(table.ruleVersion(), tablePath + ".rule-version must not be blank");
         String shardingColumn = requireText(table.shardingColumn(), tablePath + ".sharding-column must not be blank");
@@ -120,13 +197,13 @@ public final class LavShardConfigurationCompiler {
         String hashVersion = requireText(table.algorithm().hashVersion(), tablePath + ".algorithm.hash-version must not be blank");
 
         LavShardProperties.Topology configuredTopology = table.topology();
+
         requireText(configuredTopology.version(), tablePath + ".topology.version must not be blank");
 
         Map<String, ShardNode> nodes = compileNodes(tablePath, configuredTopology.nodes(), dataSourceIds);
 
         try {
             ShardTopology topology = new ShardTopology(configuredTopology.version(), configuredTopology.bucketCount(), configuredTopology.bucketPlacements(), nodes);
-
             AlgorithmConfig algorithmConfig = new AlgorithmConfig(configuredTopology.bucketCount(), hashVersion);
 
             return new TableRule(ruleVersion, new QualifiedTableName(logicalTable), shardingColumn, algorithmName, algorithmConfig, topology);
@@ -137,27 +214,23 @@ public final class LavShardConfigurationCompiler {
 
     private static Map<String, ShardNode> compileNodes(String tablePath, Map<String, LavShardProperties.Node> configuredNodes, Set<String> dataSourceIds) {
         Map<String, ShardNode> nodes = new HashMap<>();
+
         for (Map.Entry<String, LavShardProperties.Node> entry : configuredNodes.entrySet()) {
-            String nodeId = requireText(entry.getKey(), tablePath + ".topology.nodes must not contain blank nodeId");
-
+            String nodeId = requireText(entry.getKey(), tablePath + ".topology.nodes must not contain " + "blank nodeId");
             LavShardProperties.Node node = Objects.requireNonNull(entry.getValue(), "node configuration must not be null");
-
             String dataSourceId = requireText(node.dataSource(), tablePath + ".topology.nodes." + nodeId + ".data-source must not be blank");
 
             if (!dataSourceIds.contains(dataSourceId)) {
-                throw new ConfigurationException(tablePath + ".topology.nodes." + nodeId + ".data-source references " + "unknown dataSourceId: " + dataSourceId);
+                throw new ConfigurationException(tablePath + ".topology.nodes." + nodeId + ".data-source references unknown " + "dataSourceId: " + dataSourceId);
             }
-
 
             String actualTable = requireText(node.actualTable(), tablePath + ".topology.nodes." + nodeId + ".actual-table must not be blank");
 
             nodes.put(nodeId, new ShardNode(nodeId, dataSourceId, new QualifiedTableName(actualTable)));
-
         }
 
         return Map.copyOf(nodes);
     }
-
 
     private static void rejectManagedOrdinaryOverlap(List<TableRule> rules, Set<QualifiedTableName> ordinaryTables) {
         for (TableRule rule : rules) {
@@ -173,7 +246,7 @@ public final class LavShardConfigurationCompiler {
         requireText(managed.url(), path + ".url must not be blank");
 
         if (managed.maximumPoolSize() <= 0) {
-            throw new ConfigurationException(path + ".maximum-pool-size " + "must be greater than zero");
+            throw new ConfigurationException(path + ".maximum-pool-size must be greater than zero");
         }
 
         if (managed.minimumIdle() < 0 || managed.minimumIdle() > managed.maximumPoolSize()) {
@@ -181,7 +254,7 @@ public final class LavShardConfigurationCompiler {
         }
 
         if (managed.connectionTimeout() < 250L) {
-            throw new ConfigurationException(path + ".connection-timeout " + "must be at least 250 milliseconds");
+            throw new ConfigurationException(path + ".connection-timeout must be at least " + "250 milliseconds");
         }
 
         return managed;
@@ -189,6 +262,9 @@ public final class LavShardConfigurationCompiler {
 
     /**
      * 已完成校验的两类物理数据源配置。
+     *
+     * @param beanNames          外部 DataSource Bean 引用
+     * @param managedDataSources Starter 托管数据源配置
      */
     private record CompiledDataSources(Map<String, String> beanNames,
                                        Map<String, LavShardProperties.ManagedDataSource> managedDataSources) {

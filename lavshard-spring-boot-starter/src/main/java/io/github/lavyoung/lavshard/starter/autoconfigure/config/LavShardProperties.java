@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 import java.sql.Connection;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -18,7 +19,9 @@ import java.util.Set;
  *
  * @param enabled     是否启用 LavShard
  * @param integration 集成层配置
- * @param dataSources 数据源 ID 到 Spring Bean 引用的映射
+ * @param dataSources 数据源 ID 到物理数据源配置的映射
+ * @param defaults    分片表默认配置
+ * @param layouts     可复用的分片布局模板
  * @param tables      逻辑表到分片规则配置的映射
  * @author <a href="mailto:lavyoung1325@outlook.com">lavyoung</a>
  * @version 0.1.0
@@ -29,19 +32,37 @@ public record LavShardProperties(
         @DefaultValue("true") boolean enabled,
         Integration integration,
         Map<String, DataSourceReference> dataSources,
+        Defaults defaults,
+        Map<String, Layout> layouts,
         Map<String, Table> tables
 ) {
 
+    /**
+     * 标准配置绑定构造器。
+     */
+    @ConstructorBinding
     public LavShardProperties {
-        integration = integration == null
-                ? new Integration(Strings.EMPTY, Set.of(), Set.of(), TransactionIsolation.REPEATABLE_READ)
-                : integration;
-        dataSources = dataSources == null
-                ? Map.of()
-                : Map.copyOf(dataSources);
-        tables = tables == null
-                ? Map.of()
-                : Map.copyOf(tables);
+        integration = integration == null ? new Integration(Strings.EMPTY, Set.of(), Set.of(), TransactionIsolation.REPEATABLE_READ) : integration;
+        dataSources = dataSources == null ? Map.of() : Map.copyOf(dataSources);
+        defaults = defaults == null ? new Defaults(Strings.EMPTY) : defaults;
+        layouts = layouts == null ? Map.of() : Map.copyOf(layouts);
+        tables = tables == null ? Map.of() : Map.copyOf(tables);
+    }
+
+    /**
+     * 兼容原有四参数程序化构造方式。
+     *
+     * @param enabled     是否启用
+     * @param integration 集成配置
+     * @param dataSources 数据源配置
+     * @param tables      显式表规则
+     */
+    public LavShardProperties(
+            boolean enabled,
+            Integration integration,
+            Map<String, DataSourceReference> dataSources,
+            Map<String, Table> tables) {
+        this(enabled, integration, dataSources, new Defaults(Strings.EMPTY), Map.of(), tables);
     }
 
 
@@ -190,24 +211,144 @@ public record LavShardProperties(
     }
 
     /**
+     * 分片表默认配置。
+     *
+     * @param layout 默认分片布局名称
+     */
+    public record Defaults(String layout) {
+
+        public Defaults {
+            layout = Objects.requireNonNullElse(layout, Strings.EMPTY);
+        }
+    }
+
+    /**
+     * 可复用的分片布局模板。
+     *
+     * <p>数据源列表的顺序是持久化拓扑契约的一部分，不能依赖
+     * data-sources Map 的遍历顺序。</p>
+     *
+     * @param version             稳定布局版本
+     * @param dataSourceIds       按确定顺序排列的数据源 ID
+     * @param tablesPerDataSource 每个数据源的物理表数量
+     * @param bucketCount         固定逻辑桶数量
+     * @param algorithm           分片算法；未配置时使用稳定 Hash 默认值
+     * @param tableSuffix         物理表后缀；未配置时使用 _00 起始规则
+     * @param placementStrategy   桶放置策略
+     */
+    public record Layout(
+            String version,
+            List<String> dataSourceIds,
+            int tablesPerDataSource,
+            int bucketCount,
+            Algorithm algorithm,
+            TableSuffix tableSuffix,
+            PlacementStrategy placementStrategy
+    ) {
+        public Layout {
+            version = Objects.requireNonNullElse(version, Strings.EMPTY);
+            dataSourceIds = dataSourceIds == null ? List.of() : List.copyOf(dataSourceIds);
+            algorithm = algorithm == null ? new Algorithm("hash_mod", "murmur3_32_v1")
+                    : algorithm;
+            tableSuffix = tableSuffix == null ? new TableSuffix(true, "_", 0, 2) : tableSuffix;
+            placementStrategy = Objects.requireNonNullElse(placementStrategy, PlacementStrategy.ROUND_ROBIN);
+        }
+    }
+
+    /**
+     * 物理表后缀生成规则。
+     *
+     * <p>关闭后缀时用于纯分库拓扑：每个数据源只能包含一张物理表，
+     * 且物理表名与逻辑表名保持一致。</p>
+     *
+     * @param enabled   是否在逻辑表名后追加数字后缀
+     * @param separator 逻辑表名和数字后缀之间的分隔符
+     * @param start     第一个物理表的数字编号
+     * @param width     数字后缀的最小补零宽度
+     */
+    public record TableSuffix(
+            @DefaultValue("true") boolean enabled,
+            @DefaultValue("_") String separator,
+            @DefaultValue("0") int start,
+            @DefaultValue("2") int width
+    ) {
+        @ConstructorBinding
+        public TableSuffix {
+            separator = Objects.requireNonNullElse(separator, "_");
+        }
+
+        /**
+         * 兼容原有默认开启后缀的程序化构造方式。
+         *
+         * @param separator 表名与数字后缀之间的分隔符
+         * @param start     起始编号
+         * @param width     最小补零宽度
+         */
+        public TableSuffix(
+                String separator,
+                int start,
+                int width
+        ) {
+            this(true, separator, start, width);
+        }
+    }
+
+    /**
+     * 初始逻辑桶放置策略。
+     */
+    public enum PlacementStrategy {
+        ROUND_ROBIN
+    }
+
+    /**
      * 单张逻辑表的分片规则配置。
      *
-     * @param ruleVersion    规则版本
+     * <p>普通模式可以只配置 shardingColumn，并继承默认布局。
+     * 专家模式继续配置 algorithm 和 topology。</p>
+     *
+     * @param ruleVersion    显式规则版本；布局模式下可以为空
      * @param shardingColumn 分片列
-     * @param algorithm      分片算法配置
-     * @param topology       物理拓扑配置
+     * @param layout         表级布局覆盖
+     * @param algorithm      显式拓扑模式使用的算法
+     * @param topology       完整显式拓扑
      */
     public record Table(
             String ruleVersion,
             String shardingColumn,
+            String layout,
             Algorithm algorithm,
             Topology topology
     ) {
+        @ConstructorBinding
         public Table {
             ruleVersion = Objects.requireNonNullElse(ruleVersion, Strings.EMPTY);
             shardingColumn = Objects.requireNonNullElse(shardingColumn, Strings.EMPTY);
+            layout = Objects.requireNonNullElse(layout, Strings.EMPTY);
             algorithm = algorithm == null ? new Algorithm(Strings.EMPTY, Strings.EMPTY) : algorithm;
             topology = topology == null ? new Topology(Strings.EMPTY, 0, Map.of(), Map.of()) : topology;
+        }
+
+        /**
+         * 兼容原有显式拓扑四参数构造方式。
+         *
+         * @param ruleVersion    规则版本
+         * @param shardingColumn 分片列
+         * @param algorithm      分片算法
+         * @param topology       显式拓扑
+         */
+        public Table(
+                String ruleVersion,
+                String shardingColumn,
+                Algorithm algorithm,
+                Topology topology
+        ) {
+            this(
+                    ruleVersion,
+                    shardingColumn,
+                    Strings.EMPTY,
+                    algorithm,
+                    topology
+            );
         }
     }
 

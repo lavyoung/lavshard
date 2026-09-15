@@ -227,6 +227,101 @@ class LavShardAutoConfigurationTest {
     }
 
     @Test
+    void shouldAutoConfigureAndRouteUsingDefaultLayoutWithOnlyShardingColumn() {
+        contextRunner
+                .withPropertyValues(conciseLayoutProperties())
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+
+                    LavShardConfigurationSnapshot snapshot = context.getBean(
+                            LavShardConfigurationSnapshot.class
+                    );
+                    SqlRouteEngine routeEngine = context.getBean(SqlRouteEngine.class);
+
+                    assertThat(snapshot.ruleSnapshot().rules())
+                            .singleElement()
+                            .satisfies(rule -> {
+                                assertThat(rule.shardingColumn()).isEqualTo("user_id");
+                                assertThat(rule.topology().bucketCount()).isEqualTo(16);
+                                assertThat(rule.topology().nodes().values())
+                                        .extracting(node -> node.dataSourceId())
+                                        .containsExactlyInAnyOrder(
+                                                "ds0", "ds0", "ds0", "ds0",
+                                                "ds1", "ds1", "ds1", "ds1"
+                                        );
+                            });
+
+                    assertThat(routeEngine.decide(
+                            snapshot.ruleSnapshot(),
+                            "SELECT * FROM t_order WHERE user_id = ?",
+                            List.of("user-1")
+                    )).isInstanceOfSatisfying(
+                            ManagedRouteDecision.class,
+                            decision -> {
+                                assertThat(decision.routePlan()
+                                        .units()
+                                        .get(0)
+                                        .target()
+                                        .node()
+                                        .dataSourceId())
+                                        .isIn("ds0", "ds1");
+                                assertThat(decision.routePlan()
+                                        .units()
+                                        .get(0)
+                                        .target()
+                                        .node()
+                                        .actualTable()
+                                        .table())
+                                        .matches("t_order_0[0-3]");
+                            }
+                    );
+                });
+    }
+
+    @Test
+    void shouldFailStartupWhenDefaultLayoutReferencesUnknownDataSource() {
+        contextRunner
+                .withPropertyValues(conciseLayoutProperties())
+                .withPropertyValues(
+                        "lavshard.layouts[standard].data-source-ids[1]=missing"
+                )
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure())
+                            .hasRootCauseInstanceOf(ConfigurationException.class)
+                            .hasRootCauseMessage(
+                                    "lavshard.layouts.standard.data-source-ids "
+                                            + "references unknown dataSourceId: missing"
+                            );
+                });
+    }
+
+    @Test
+    void shouldAutoConfigureDatabaseOnlyLayoutWithSamePhysicalTableName() {
+        contextRunner
+                .withPropertyValues(conciseDatabaseOnlyProperties())
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+
+                    LavShardConfigurationSnapshot snapshot = context.getBean(
+                            LavShardConfigurationSnapshot.class
+                    );
+                    var rule = snapshot.ruleSnapshot()
+                            .find(new QualifiedTableName("t_order"))
+                            .orElseThrow();
+
+                    assertThat(rule.topology().nodes()).containsOnlyKeys(
+                            "t_order@ds0",
+                            "t_order@ds1"
+                    );
+                    assertThat(rule.topology().nodes().values())
+                            .allSatisfy(node -> assertThat(
+                                    node.actualTable().table()
+                            ).isEqualTo("t_order"));
+                });
+    }
+
+    @Test
     void shouldMergeApplicationShardAlgorithmWithBuiltInAlgorithms() {
         contextRunner
                 .withUserConfiguration(CustomAlgorithmConfiguration.class)
@@ -376,6 +471,37 @@ class LavShardAutoConfigurationTest {
                 "lavshard.tables[t_order].topology.bucket-placements[0]=node0",
                 "lavshard.tables[t_order].topology.nodes[node0].data-source=ds0",
                 "lavshard.tables[t_order].topology.nodes[node0].actual-table=t_order_00"
+        };
+    }
+
+    private static String[] conciseLayoutProperties() {
+        return new String[]{
+                "lavshard.integration.default-data-source=ds0",
+                "lavshard.data-sources[ds0].bean-name=orderDataSource0",
+                "lavshard.data-sources[ds1].bean-name=orderDataSource1",
+                "lavshard.defaults.layout=standard",
+                "lavshard.layouts[standard].version=layout-v1",
+                "lavshard.layouts[standard].data-source-ids[0]=ds0",
+                "lavshard.layouts[standard].data-source-ids[1]=ds1",
+                "lavshard.layouts[standard].tables-per-data-source=4",
+                "lavshard.layouts[standard].bucket-count=16",
+                "lavshard.tables[t_order].sharding-column=user_id"
+        };
+    }
+
+    private static String[] conciseDatabaseOnlyProperties() {
+        return new String[]{
+                "lavshard.integration.default-data-source=ds0",
+                "lavshard.data-sources[ds0].bean-name=orderDataSource0",
+                "lavshard.data-sources[ds1].bean-name=orderDataSource1",
+                "lavshard.defaults.layout=database-only",
+                "lavshard.layouts[database-only].version=database-v1",
+                "lavshard.layouts[database-only].data-source-ids[0]=ds0",
+                "lavshard.layouts[database-only].data-source-ids[1]=ds1",
+                "lavshard.layouts[database-only].tables-per-data-source=1",
+                "lavshard.layouts[database-only].bucket-count=16",
+                "lavshard.layouts[database-only].table-suffix.enabled=false",
+                "lavshard.tables[t_order].sharding-column=user_id"
         };
     }
 

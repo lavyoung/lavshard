@@ -32,28 +32,20 @@ lavshard:
         minimum-idle: 0
         connection-timeout: 30000
 
+  defaults:
+    layout: database-only
+
+  layouts:
+    database-only:
+      version: order-database-layout-v1
+      data-source-ids:
+        - ds0
+        - ds1
+      tables-per-data-source: 1
+      bucket-count: 2
+      table-suffix:
+        enabled: false
+
   tables:
     t_order:
-      rule-version: order-rule-v1
       sharding-column: user_id
-
-      algorithm:
-        name: hash_mod
-        hash-version: murmur3_32_v1
-
-      topology:
-        version: order-topology-v1
-        bucket-count: 2
-
-        bucket-placements:
-          0: order-database-00
-          1: order-database-01
-
-        nodes:
-          order-database-00:
-            data-source: ds0
-            actual-table: t_order
-
-          order-database-01:
-            data-source: ds1
-            actual-table: t_order

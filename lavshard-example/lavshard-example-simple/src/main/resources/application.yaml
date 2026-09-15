@@ -4,6 +4,7 @@ spring:
 
 lavshard:
   enabled: true
+
   integration:
     default-data-source: ds0
     default-transaction-isolation: read-committed
@@ -11,6 +12,7 @@ lavshard:
       - sys_dict
     managed-mapper-packages:
       - io.github.lavyoung.lavshard.example.order.mapper
+
   data-sources:
     ds0:
       managed:
@@ -21,28 +23,18 @@ lavshard:
         maximum-pool-size: 4
         minimum-idle: 0
         connection-timeout: 30000
+
+  defaults:
+    layout: single-database-tables
+
+  layouts:
+    single-database-tables:
+      version: order-layout-v1
+      data-source-ids:
+        - ds0
+      tables-per-data-source: 2
+      bucket-count: 2
+
   tables:
     t_order:
-      rule-version: order-rule-v1
       sharding-column: user_id
-
-      algorithm:
-        name: hash_mod
-        hash-version: murmur3_32_v1
-
-      topology:
-        version: order-topology-v1
-        bucket-count: 2
-
-        bucket-placements:
-          0: order-node-00
-          1: order-node-01
-
-        nodes:
-          order-node-00:
-            data-source: ds0
-            actual-table: t_order_00
-
-          order-node-01:
-            data-source: ds0
-            actual-table: t_order_01

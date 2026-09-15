@@ -9,6 +9,7 @@ import io.github.lavyoung.lavshard.core.api.exception.CrossShardTransactionExcep
 import io.github.lavyoung.lavshard.core.internal.algorithm.Murmur3HashShardAlgorithm;
 import io.github.lavyoung.lavshard.example.multi.order.api.CreateOrderRequest;
 import io.github.lavyoung.lavshard.example.multi.order.service.OrderService;
+import io.github.lavyoung.lavshard.starter.autoconfigure.config.LavShardProperties;
 import io.github.lavyoung.lavshard.starter.internal.datasource.LavShardManagedDataSourceRegistry;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,6 +65,9 @@ class MultiDataSourceApplicationTest {
     @Autowired
     private SqlSessionFactory sqlSessionFactory;
 
+    @Autowired
+    private LavShardProperties lavShardProperties;
+
     private HikariDataSource dataSource0;
     private HikariDataSource dataSource1;
     private JdbcTemplate jdbc0;
@@ -96,6 +100,27 @@ class MultiDataSourceApplicationTest {
         assertThat(sqlSessionFactory.getConfiguration()
                 .getEnvironment().getDataSource())
                 .isSameAs(routingDataSource);
+    }
+
+    @Test
+    void shouldUseConciseDatabaseOnlyLayoutWithSameTableName() {
+        LavShardProperties.Layout layout =
+                lavShardProperties.layouts().get("database-only");
+
+        assertThat(lavShardProperties.defaults().layout())
+                .isEqualTo("database-only");
+        assertThat(layout).isNotNull();
+        assertThat(layout.dataSourceIds()).containsExactly("ds0", "ds1");
+        assertThat(layout.tablesPerDataSource()).isEqualTo(1);
+        assertThat(layout.bucketCount()).isEqualTo(2);
+        assertThat(layout.tableSuffix().enabled()).isFalse();
+        assertThat(lavShardProperties.tables().get("t_order"))
+                .satisfies(table -> {
+                    assertThat(table.shardingColumn()).isEqualTo("user_id");
+                    assertThat(table.ruleVersion()).isEmpty();
+                    assertThat(table.layout()).isEmpty();
+                    assertThat(table.topology().nodes()).isEmpty();
+                });
     }
 
     @Test

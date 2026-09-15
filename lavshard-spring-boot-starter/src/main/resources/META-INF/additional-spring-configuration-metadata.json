@@ -26,8 +26,20 @@
       "description": "数据源 ID 到物理数据源配置的映射；每项必须且只能选择 bean-name 或 managed 模式."
     },
     {
+      "name": "lavshard.defaults",
+      "description": "分片表默认配置，可指定未显式声明布局的表所使用的默认布局."
+    },
+    {
+      "name": "lavshard.defaults.layout",
+      "description": "未显式配置表级布局或完整拓扑时使用的默认分片布局名称."
+    },
+    {
+      "name": "lavshard.layouts",
+      "description": "可复用分片布局模板；启动时展开为完整、稳定且不可变的物理拓扑."
+    },
+    {
       "name": "lavshard.tables",
-      "description": "逻辑分片表到不可变规则、算法和物理拓扑配置的映射."
+      "description": "逻辑分片表配置；可以引用布局模板，也可以声明完整显式拓扑."
     }
   ],
   "hints": [
@@ -49,6 +61,15 @@
         {
           "value": "serializable",
           "description": "使用最严格的事务隔离级别."
+        }
+      ]
+    },
+    {
+      "name": "lavshard.layouts.*.placement-strategy",
+      "values": [
+        {
+          "value": "round-robin",
+          "description": "按 data-source-ids 和物理表后缀的确定顺序轮询放置逻辑桶."
         }
       ]
     }

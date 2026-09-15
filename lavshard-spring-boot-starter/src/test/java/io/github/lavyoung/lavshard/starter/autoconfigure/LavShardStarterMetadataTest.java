@@ -66,6 +66,8 @@ class LavShardStarterMetadataTest {
                 "lavshard.integration.managed-mapper-packages",
                 "lavshard.integration.ordinary-tables",
                 "lavshard.data-sources",
+                "lavshard.defaults",
+                "lavshard.layouts",
                 "lavshard.tables"
         );
         assertThat(properties.values()).allSatisfy(property ->
@@ -83,6 +85,9 @@ class LavShardStarterMetadataTest {
         ).path("type").asText()).contains(
                 "LavShardProperties$DataSourceReference"
         );
+        assertThat(properties.get(
+                "lavshard.layouts"
+        ).path("type").asText()).contains("LavShardProperties$Layout");
         assertThat(properties.get(
                 "lavshard.tables"
         ).path("type").asText()).contains("LavShardProperties$Table");
