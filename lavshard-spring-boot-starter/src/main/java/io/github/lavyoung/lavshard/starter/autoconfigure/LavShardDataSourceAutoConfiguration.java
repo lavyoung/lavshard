@@ -3,8 +3,11 @@ package io.github.lavyoung.lavshard.starter.autoconfigure;
 import io.github.lavyoung.lavshard.core.api.exception.ConfigurationException;
 import io.github.lavyoung.lavshard.mybatis.internal.routing.LavShardRoutingDataSource;
 import io.github.lavyoung.lavshard.mybatis.internal.routing.MyBatisRouteContext;
+import io.github.lavyoung.lavshard.starter.api.broadcast.ShardBroadcastOperations;
+import io.github.lavyoung.lavshard.starter.internal.broadcast.DefaultShardBroadcastOperations;
 import io.github.lavyoung.lavshard.starter.internal.config.LavShardConfigurationSnapshot;
 import io.github.lavyoung.lavshard.starter.internal.datasource.LavShardManagedDataSourceRegistry;
+import io.github.lavyoung.lavshard.starter.internal.datasource.LavShardPhysicalDataSourceCatalog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.BeanNotOfRequiredTypeException;
@@ -56,10 +59,9 @@ public class LavShardDataSourceAutoConfiguration {
      * Spring 事务管理器和 MyBatis 默认选择路由数据源，而不是任意
      * 一个物理连接池。</p>
      *
-     * @param snapshot        启动期不可变配置快照
-     * @param routeContext    MyBatis 当前线程路由上下文
-     * @param beanFactory     Spring Bean 查询入口
-     * @param managedRegistry Starter 托管连接池注册表
+     * @param snapshot          启动期不可变配置快照
+     * @param routeContext      MyBatis 当前线程路由上下文
+     * @param dataSourceCatalog 解析并发布全部配置声明的物理数据源
      * @return 延迟路由数据源
      * @throws ConfigurationException 配置引用的数据源 Bean 不存在
      *                                或类型错误时抛出
@@ -67,8 +69,10 @@ public class LavShardDataSourceAutoConfiguration {
     @Bean(name = "lavShardDataSource")
     @Primary
     @ConditionalOnMissingBean(LavShardRoutingDataSource.class)
-    public LavShardRoutingDataSource lavShardDataSource(LavShardConfigurationSnapshot snapshot, MyBatisRouteContext routeContext, ConfigurableListableBeanFactory beanFactory, LavShardManagedDataSourceRegistry managedRegistry) {
-        Map<String, DataSource> physicalDataSources = resolvePhysicalDataSources(snapshot, beanFactory, managedRegistry);
+    public LavShardRoutingDataSource lavShardDataSource(LavShardConfigurationSnapshot snapshot,
+                                                        MyBatisRouteContext routeContext,
+                                                        LavShardPhysicalDataSourceCatalog dataSourceCatalog) {
+        Map<String, DataSource> physicalDataSources = dataSourceCatalog.dataSources();
 
         LOGGER.info(
                 "LavShard routing data source initialized: dataSourceIds={}, defaultDataSourceId={}, managedTableCount={}, ordinaryTableCount={}",
@@ -78,7 +82,44 @@ public class LavShardDataSourceAutoConfiguration {
                 snapshot.ordinaryTables().size()
         );
 
-        return new LavShardRoutingDataSource(physicalDataSources, routeContext, snapshot.defaultTransactionIsolation());
+        return new LavShardRoutingDataSource(
+                physicalDataSources,
+                routeContext,
+                snapshot.defaultTransactionIsolation()
+        );
+    }
+
+    /**
+     * 解析并发布全部配置声明的物理数据源。
+     *
+     * @param snapshot        启动期不可变配置快照
+     * @param beanFactory     Spring Bean 查询入口
+     * @param managedRegistry Starter 托管连接池注册表
+     * @return 不可变物理数据源目录
+     * @throws ConfigurationException 配置引用的数据源 Bean 不存在或类型错误时抛出
+     */
+    @Bean
+    @ConditionalOnMissingBean(LavShardPhysicalDataSourceCatalog.class)
+    public LavShardPhysicalDataSourceCatalog lavShardPhysicalDataSourceCatalog(LavShardConfigurationSnapshot snapshot,
+                                                                               ConfigurableListableBeanFactory beanFactory,
+                                                                               LavShardManagedDataSourceRegistry managedRegistry) {
+        return new LavShardPhysicalDataSourceCatalog(
+                resolvePhysicalDataSources(snapshot, beanFactory, managedRegistry)
+        );
+    }
+
+    /**
+     * 发布跨分片扫描的公开操作入口。
+     *
+     * @param snapshot          启动期不可变配置快照
+     * @param dataSourceCatalog 已解析物理数据源目录
+     * @return 跨分片扫描操作入口
+     */
+    @Bean
+    @ConditionalOnMissingBean(ShardBroadcastOperations.class)
+    public ShardBroadcastOperations shardBroadcastOperations(LavShardConfigurationSnapshot snapshot,
+                                                             LavShardPhysicalDataSourceCatalog dataSourceCatalog) {
+        return new DefaultShardBroadcastOperations(snapshot.ruleSnapshot(), dataSourceCatalog);
     }
 
     /**

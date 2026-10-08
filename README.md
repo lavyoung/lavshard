@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 [![Java](https://img.shields.io/badge/Java-17%2B-orange.svg)](https://www.oracle.com/java/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-brightgreen.svg)](https://spring.io/projects/spring-boot)
-[![Project Status](https://img.shields.io/badge/status-v0.1%20release%20candidate-blue.svg)](docs/design/architecture-roadmap.md)
+[![Project Status](https://img.shields.io/badge/status-v0.1.2%20release%20candidate-blue.svg)](docs/design/architecture-roadmap.md)
 [![Build Status](https://github.com/lavyoung/lavshard/actions/workflows/ci.yml/badge.svg)](https://github.com/lavyoung/lavshard/actions)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/lavyoung/lavshard/pulls)
 
@@ -17,12 +17,12 @@
 
 **LavShard** 的目标是成为轻量级、严格正确且性能可预测的数据库分库分表路由组件，为 Spring Boot + MyBatis 应用提供低侵入的单分片能力。
 
-> **项目状态：v0.1 单分片闭环已完成自动测试和真实 MySQL 验收，当前处于发布候选阶段，尚未发布生产稳定版本。** 使用前请严格遵守
+> **项目状态：v0.1.2 单分片路由与显式跨分片扫描已进入发布候选阶段，尚未发布生产稳定版本。** 使用前请严格遵守
 > SQL 支持矩阵和本地事务边界。
 
 总体设计见 [架构与演进规划](docs/design/architecture-roadmap.md)，首版边界见 [v0.1 SQL 支持矩阵](docs/design/v0.1.0/v0.1-sql-support-matrix.md)，业务建模前请阅读 [分片数据模型规范](docs/design/sharding-data-model-guidelines.md)。
 
-发布信息见 [v0.1.0 Release Notes](docs/design/v0.1.0/release-notes.md)
+当前发布草稿见 [v0.1.2 Release Notes](docs/design/v0.1.2/release-notes.md)，首版发布信息见 [v0.1.0 Release Notes](docs/design/v0.1.0/release-notes.md)
 ，经过验证的运行环境见 [v0.1.0 兼容性矩阵](docs/design/v0.1.0/compatibility-matrix.md)。
 
 升级开发版本时，请查看 [MyBatis 与 Starter 包结构迁移说明](docs/design/v0.1.0/package-layout-migration.md)
@@ -45,6 +45,7 @@
 | 分片形态            | 统一拓扑模型覆盖仅分表、仅分库、分库 + 分表 | ✅ v0.1 已验收 |
 | MyBatis 集成        | 参数绑定、SQL 改写、缓存与事务安全          | ✅ v0.1 已验收 |
 | Spring Boot Starter | 自动配置、配置校验与用户 Bean 退让          | ✅ v0.1 已验收 |
+| 显式跨分片扫描      | 公开目标遍历与顺序结果合并 API              | ✅ v0.1.2 已实现 |
 | Range / 自定义算法  | 结构化 Range 规则与算法 SPI                 |    📋 v0.2     |
 | 多路由读取          | 受限 `IN` 拆分与无序结果拼接                |    📋 v0.3     |
 | 规则治理            | 版本、审计、回滚和安全热更新                |    📋 v0.4     |
@@ -76,11 +77,11 @@ lavshard-core: Parse → Classify → Bind → Validate → Bucket → Topology 
 
 ## 🚀 快速开始
 
-> 当前代码是 v0.1.0 发布候选版本；配置键和公开 API 在正式发布前仍可能调整。
+> 当前代码是 v0.1.2 发布候选版本；配置键和公开 API 在正式发布前仍可能调整。
 
 ### 接入方式
 
-v0.1 的接入方式是：
+当前版本的接入方式是：
 
 1. 引入 `lavshard-spring-boot-starter`。
 2. 由业务项目显式选择标准 MyBatis Starter 或 MyBatis-Plus Starter，两者不要同时引入。
@@ -151,17 +152,17 @@ lavshard:
 ```bash
 # 单库分表：一个数据源、两个物理表
 mvn -pl lavshard-example/lavshard-example-simple -am -DskipTests package
-java -jar lavshard-example/lavshard-example-simple/target/lavshard-example-simple-0.1.0.jar
+java -jar lavshard-example/lavshard-example-simple/target/lavshard-example-simple-0.1.2.jar
 
 # 多数据源分库：两个数据源、跨库本地事务拒绝
 mvn -pl lavshard-example/lavshard-example-multi-datasource -am -DskipTests package
-java -jar lavshard-example/lavshard-example-multi-datasource/target/lavshard-example-multi-datasource-0.1.0.jar
+java -jar lavshard-example/lavshard-example-multi-datasource/target/lavshard-example-multi-datasource-0.1.2.jar
 ```
 
 示例默认使用 H2 的 MySQL 兼容模式，便于直接启动；真实 MySQL 行为由 `MySqlRoutingIT` 使用两个 MySQL 8.0.36
 临时实例验收。配置模型和生产边界见[总体架构与演进规划](docs/design/architecture-roadmap.md)。
 
-### v0.1 行为边界
+### 单分片路由边界
 
 - 已配置分片表：严格解析、参数绑定、路由和 SQL 改写。
 - 明确普通表：透传到默认数据源。
@@ -169,6 +170,25 @@ java -jar lavshard-example/lavshard-example-multi-datasource/target/lavshard-exa
 - 单个本地事务：只能绑定一个物理数据库和一个兼容规则/拓扑版本。
 
 精确支持范围见 [v0.1 SQL 支持矩阵](docs/design/v0.1.0/v0.1-sql-support-matrix.md)。
+
+### 显式跨分片扫描
+
+需要补偿扫描、离线检查等跨分片读取时，业务代码可以注入公开的 `ShardBroadcastOperations`，按逻辑表显式遍历物理目标：
+
+```java
+List<TaskEntity> tasks = shardBroadcastOperations.queryAll(
+        new QualifiedTableName("task"),
+        target -> queryPublishableTasks(
+                target.dataSource(),
+                target.actualTable(),
+                limit
+        )
+);
+```
+
+每个 `ShardBroadcastTarget` 提供稳定的 `nodeId`、`dataSourceId`、物理 `DataSource` 和真实表名。目标按节点标识排序并去重；
+`queryAll` 按目标顺序合并结果，但不执行全局排序、分页或并行查询。广播回调不能在 Spring 活跃事务中执行，普通 MyBatis Mapper SQL
+仍保持单分片路由语义，不会被自动广播。
 
 ### 跨库事务与不同分片键
 
@@ -259,7 +279,7 @@ mvn clean install -pl lavshard-core -am
 ## 🗺️ 路线图
 
 - [x] **v0.1.0 发布候选** — 可信单分片闭环、固定逻辑桶、MyBatis 与本地事务安全
-- [ ] **v0.2.0** — Range、自定义算法、规则版本、诊断与最小 Actuator
+- [ ] **v0.1.2 发布收口** — 显式跨分片扫描、简化拓扑、路由诊断与最小 Actuator
 - [ ] **v0.3.0** — 受限多路由读取和资源上限保护
 - [ ] **v0.4.0** — 规则治理、安全热更新、迁移验证与生产可观测性
 - [ ] **v0.5.0** — 候选方言与框架适配器

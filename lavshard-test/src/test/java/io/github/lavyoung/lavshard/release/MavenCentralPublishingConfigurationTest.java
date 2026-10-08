@@ -52,12 +52,14 @@ class MavenCentralPublishingConfigurationTest {
     }
 
     @Test
-    void shouldUseCurrentCentralPortalPublishingPlugin() throws Exception {
+    void shouldScopeCurrentCentralPortalPluginToReleaseProfile()
+            throws Exception {
         assertThat(text(
                 "/project/properties/central-publishing-maven-plugin.version"
         )).isEqualTo("0.11.0");
 
-        String plugin = "/project/build/pluginManagement/plugins/plugin"
+        String plugin = "/project/profiles/profile[id='release']"
+                + "/build/plugins/plugin"
                 + "[artifactId='central-publishing-maven-plugin']";
 
         assertThat(text(plugin + "/groupId"))
@@ -71,6 +73,14 @@ class MavenCentralPublishingConfigurationTest {
                 .isEqualTo("false");
         assertThat(text(plugin + "/configuration/waitUntil"))
                 .isEqualTo("validated");
+        assertThat(count(
+                "/project/build/pluginManagement/plugins/plugin"
+                        + "[artifactId='central-publishing-maven-plugin']"
+        )).isZero();
+        assertThat(count(
+                "/project/build/plugins/plugin"
+                        + "[artifactId='central-publishing-maven-plugin']"
+        )).isZero();
     }
 
     @Test
