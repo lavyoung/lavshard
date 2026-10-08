@@ -49,7 +49,7 @@
 
     <!-- ==================== 版本属性统一管理 ==================== -->
     <properties>
-        <revision>0.1.0</revision>
+        <revision>0.1.1</revision>
         <!-- 项目编码 -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -425,7 +425,7 @@
                     <version>${spotless-maven-plugin.version}</version>
                     <configuration>
                         <!-- v0.1 发布候选格式基线；后续被修改的 Java 文件必须满足规则。 -->
-                        <ratchetFrom>bdf3275</ratchetFrom>
+                        <ratchetFrom>10f222b</ratchetFrom>
                         <java>
                             <removeUnusedImports/>
                             <trimTrailingWhitespace/>

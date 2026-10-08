@@ -11,9 +11,11 @@ import io.github.lavyoung.lavshard.core.api.algorithm.ShardValue;
 import io.github.lavyoung.lavshard.core.api.exception.ConfigurationException;
 import io.github.lavyoung.lavshard.core.api.route.PassThroughDecision;
 import io.github.lavyoung.lavshard.core.api.route.SqlRouteDecision;
+import io.github.lavyoung.lavshard.core.api.topology.QualifiedTableName;
 import io.github.lavyoung.lavshard.core.internal.route.SqlRouteEngine;
 import io.github.lavyoung.lavshard.mybatis.internal.routing.LavShardRoutingDataSource;
 import io.github.lavyoung.lavshard.mybatis.internal.routing.MyBatisRouteContext;
+import io.github.lavyoung.lavshard.starter.api.broadcast.ShardBroadcastOperations;
 import io.github.lavyoung.lavshard.starter.internal.config.LavShardConfigurationSnapshot;
 import io.github.lavyoung.lavshard.starter.internal.datasource.LavShardManagedDataSourceRegistry;
 import org.junit.jupiter.api.Test;
@@ -190,6 +192,30 @@ class LavShardDataSourceAutoConfigurationTest {
                 });
     }
 
+    /**
+     * Given 已配置多个物理分片的数据源自动配置
+     * When Spring 容器完成启动
+     * Then 发布业务可注入的跨分片扫描公开接口。
+     */
+    @Test
+    void shouldPublishPublicShardBroadcastOperations() {
+        contextRunner
+                .withUserConfiguration(PhysicalDataSourcesConfiguration.class)
+                .withPropertyValues(validProperties("test_identity"))
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(ShardBroadcastOperations.class);
+
+                    ShardBroadcastOperations operations = context.getBean(
+                            ShardBroadcastOperations.class
+                    );
+
+                    assertThat(operations.targets(new QualifiedTableName("t_order")))
+                            .extracting(target -> target.dataSourceId())
+                            .containsExactly("ds0", "ds1");
+                });
+    }
+
     @Test
     void shouldExcludeUnconfiguredDataSourceBeansFromRoutingRegistry() {
         contextRunner
@@ -254,13 +280,13 @@ class LavShardDataSourceAutoConfigurationTest {
                 .run(context -> {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure())
-                            .cause()
-                            .cause()
-                            .isInstanceOf(ConfigurationException.class)
-                            .hasMessage(
+                            .hasMessageContaining(
                                     "Configured DataSource bean has incompatible "
                                             + "type: dataSourceId=ds1, "
                                             + "beanName=orderDataSource1"
+                            )
+                            .hasStackTraceContaining(
+                                    ConfigurationException.class.getName()
                             );
                 });
     }
