@@ -1,8 +1,8 @@
 # LavShard v0.1.2 Release Notes
 
-> 发布状态：**Draft**
-> 发布日期：待定
-> Git Tag：待创建 `v0.1.2`
+> 发布状态： **Released**
+> 发布日期：2026-10-15
+> Git Tag：`v0.1.2`
 > 当前代码版本：`0.1.2`
 
 ## 发布摘要

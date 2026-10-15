@@ -42,15 +42,16 @@
     </scm>
     <modules>
         <module>lavshard-core</module>
+        <module>lavshard-mybatis</module>
         <module>lavshard-spring-boot-starter</module>
+        <module>lavshard-bom</module>
         <module>lavshard-example</module>
         <module>lavshard-test</module>
-        <module>lavshard-mybatis</module>
     </modules>
 
     <!-- ==================== 版本属性统一管理 ==================== -->
     <properties>
-        <revision>0.1.2</revision>
+        <revision>0.1.3</revision>
         <!-- 项目编码 -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
@@ -477,6 +478,12 @@
                         <extensions>true</extensions>
                         <configuration>
                             <publishingServerId>central</publishingServerId>
+                            <excludeArtifacts>
+                                <excludeArtifact>lavshard-example</excludeArtifact>
+                                <excludeArtifact>lavshard-example-simple</excludeArtifact>
+                                <excludeArtifact>lavshard-example-multi-datasource</excludeArtifact>
+                                <excludeArtifact>lavshard-test</excludeArtifact>
+                            </excludeArtifacts>
                         </configuration>
                     </plugin>
                     <plugin>

@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class MavenCentralPublishingConfigurationTest {
 
     private static Document project;
+    private static Document bomProject;
     private static XPath xpath;
 
     /**
@@ -52,7 +53,11 @@ class MavenCentralPublishingConfigurationTest {
                 ""
         );
 
-        project = factory.newDocumentBuilder().parse(rootPom().toFile());
+        var builder = factory.newDocumentBuilder();
+        project = builder.parse(rootPom().toFile());
+        bomProject = builder.parse(
+                rootPom().getParent().resolve("lavshard-bom/pom.xml").toFile()
+        );
         xpath = XPathFactory.newInstance().newXPath();
     }
 
@@ -79,6 +84,14 @@ class MavenCentralPublishingConfigurationTest {
         assertThat(text(plugin + "/extensions")).isEqualTo("true");
         assertThat(text(plugin + "/configuration/publishingServerId"))
                 .isEqualTo("central");
+        assertThat(strings(
+                plugin + "/configuration/excludeArtifacts/excludeArtifact"
+        )).containsExactly(
+                "lavshard-example",
+                "lavshard-example-simple",
+                "lavshard-example-multi-datasource",
+                "lavshard-test"
+        );
         assertThat(count(
                 "/project/build/pluginManagement/plugins/plugin"
                         + "[artifactId='central-publishing-maven-plugin']"
@@ -87,6 +100,33 @@ class MavenCentralPublishingConfigurationTest {
                 "/project/build/plugins/plugin"
                         + "[artifactId='central-publishing-maven-plugin']"
         )).isZero();
+    }
+
+    /**
+     * 验证独立 BOM 参与 Reactor，并统一管理全部公开 Java 模块版本。
+     *
+     * @throws Exception XPath 查询失败时抛出
+     */
+    @Test
+    void shouldPublishDedicatedBomForPublicModules() throws Exception {
+        assertThat(strings("/project/modules/module"))
+                .contains("lavshard-bom");
+        assertThat(text("/project/artifactId", bomProject))
+                .isEqualTo("lavshard-bom");
+        assertThat(text("/project/packaging", bomProject))
+                .isEqualTo("pom");
+        assertThat(strings(
+                "/project/dependencyManagement/dependencies/dependency/artifactId",
+                bomProject
+        )).containsExactly(
+                "lavshard-core",
+                "lavshard-mybatis",
+                "lavshard-spring-boot-starter"
+        );
+        assertThat(strings(
+                "/project/dependencyManagement/dependencies/dependency/version",
+                bomProject
+        )).containsOnly("${project.version}");
     }
 
     /**
@@ -172,7 +212,14 @@ class MavenCentralPublishingConfigurationTest {
     }
 
     private static String text(String expression) throws Exception {
-        return xpath.evaluate(expression, project).trim();
+        return text(expression, project);
+    }
+
+    private static String text(
+            String expression,
+            Document source
+    ) throws Exception {
+        return xpath.evaluate(expression, source).trim();
     }
 
     private static int count(String expression) throws Exception {
@@ -192,9 +239,16 @@ class MavenCentralPublishingConfigurationTest {
      */
     private static java.util.List<String> strings(String expression)
             throws Exception {
+        return strings(expression, project);
+    }
+
+    private static java.util.List<String> strings(
+            String expression,
+            Document source
+    ) throws Exception {
         var nodes = (org.w3c.dom.NodeList) xpath.evaluate(
                 expression,
-                project,
+                source,
                 XPathConstants.NODESET
         );
         var values = new java.util.ArrayList<String>(nodes.getLength());

@@ -4,6 +4,25 @@
 
 ## [Unreleased]
 
+### Planned
+
+- Range 分片算法。
+- 自定义算法 SPI。
+- 编程式 Hint 路由。
+- 安全的规则快照手动重载。
+
+## [0.1.3] - Release Candidate
+
+### Added
+
+- 新增 `lavshard-bom`，统一管理 Core、MyBatis 适配器与 Spring Boot Starter 的版本。
+
+### Fixed
+
+- Maven Central 发布包排除示例工程与测试模块，仅发布 Parent、BOM 和三个公开 Java 模块。
+
+## [0.1.2] - 2026-10-15
+
 ### Added
 
 - 提供公开的 `ShardBroadcastOperations`，支持按逻辑表枚举物理目标、显式遍历和顺序合并跨分片查询结果。
@@ -15,13 +34,6 @@
 - 确保 LavShard 托管数据源先于 Spring Boot 默认数据源自动配置注册，无需额外提供 `spring.datasource.url`。
 - 保留多 SET UPDATE 中全部 JDBC 参数的原始下标，并拒绝后续赋值中不受支持的子查询。
 - 对齐 Central Portal 发布约定：区分快照与正式发布 profile，并将 GPG 签名限定在 `central-release`。
-
-### Planned
-
-- Range 分片算法。
-- 自定义算法 SPI。
-- 编程式 Hint 路由。
-- 安全的规则快照手动重载。
 
 ## [0.1.0] - Release Candidate
 
@@ -43,5 +55,7 @@
 - 不支持跨分片 JOIN、广播查询、多行 INSERT、MyBatis Batch、动态规则和分布式事务。
 - 本地事务只能绑定一个 `dataSourceId`；跨库业务需采用共置、最终一致性方案或外部事务协调器。
 
-[Unreleased]: https://github.com/lavyoung/lavshard/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/lavyoung/lavshard/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/lavyoung/lavshard/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/lavyoung/lavshard/releases/tag/v0.1.2
 [0.1.0]: https://github.com/lavyoung/lavshard/releases/tag/v0.1.0
