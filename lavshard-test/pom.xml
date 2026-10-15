@@ -15,7 +15,7 @@
     <artifactId>lavshard-test</artifactId>
     <packaging>jar</packaging>
 
-    <name>${project.artifactId}-${revision}</name>
+    <name>${project.artifactId}</name>
     <description>跨模块集成测试、Spring Boot Starter 集成测试、JMH 性能压测</description>
 
     <properties>

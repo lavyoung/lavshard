@@ -15,10 +15,8 @@
     <artifactId>lavshard-example-multi-datasource</artifactId>
     <packaging>jar</packaging>
 
-    <name>${project.artifactId}-${revision}</name>
-    <description>
-        Runnable database-sharding example for LavShard
-    </description>
+    <name>${project.artifactId}</name>
+    <description>Runnable database-sharding example for LavShard</description>
 
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
