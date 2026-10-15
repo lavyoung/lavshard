@@ -15,7 +15,7 @@
     <artifactId>lavshard-core</artifactId>
     <packaging>jar</packaging>
 
-    <name>${project.artifactId}-${revision}</name>
+    <name>${project.artifactId}</name>
     <description>分片算法、SQL 解析、路由计算、分片规则与拓扑模型</description>
 
     <dependencies>

@@ -12,7 +12,7 @@
     <artifactId>lavshard-mybatis</artifactId>
     <packaging>jar</packaging>
 
-    <name>${project.artifactId}-${revision}</name>
+    <name>${project.artifactId}</name>
     <description>mybatis adapter</description>
 
     <dependencies>

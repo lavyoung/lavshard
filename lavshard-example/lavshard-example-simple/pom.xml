@@ -15,10 +15,8 @@
     <artifactId>lavshard-example-simple</artifactId>
     <packaging>jar</packaging>
 
-    <name>${project.artifactId}-${revision}</name>
-    <description>
-        Runnable single-database table-sharding example for LavShard
-    </description>
+    <name>${project.artifactId}</name>
+    <description>Runnable single-database table-sharding example for LavShard</description>
 
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>

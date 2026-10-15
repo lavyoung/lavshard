@@ -1,8 +1,14 @@
 package io.github.lavyoung.lavshard.core.internal.sql;
 
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.IntStream;
+
 import io.github.lavyoung.lavshard.core.api.exception.UnsupportedSqlException;
 import io.github.lavyoung.lavshard.core.api.route.SqlRewriteResult;
 import io.github.lavyoung.lavshard.core.api.topology.QualifiedTableName;
+
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.expression.JdbcParameter;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
@@ -11,11 +17,6 @@ import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.select.ParenthesedSelect;
 import net.sf.jsqlparser.statement.update.Update;
 import net.sf.jsqlparser.util.TablesNamesFinder;
-
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
-import java.util.stream.IntStream;
 
 /**
  * 基于 JSQLParser 4.9 的严格单表 UPDATE 改写器。
@@ -230,10 +231,24 @@ public final class JSqlParserSingleTableUpdateRewriter {
         private boolean nestedSelect;
 
         @Override
-        public void visit(
-                JdbcParameter jdbcParameter
-        ) {
+        public void visit(JdbcParameter jdbcParameter) {
             jdbcParameterCount++;
+        }
+
+        @Override
+        public void visit(Update update) {
+            super.visit(update);
+            // JSQLParser 4.9 only traverses the first UpdateSet here.
+            for (int updateSetIndex = 1;
+                 updateSetIndex < update.getUpdateSets().size();
+                 updateSetIndex++) {
+                var updateSet = update.getUpdateSet(updateSetIndex);
+                for (int valueIndex = 0;
+                     valueIndex < updateSet.getValues().size();
+                     valueIndex++) {
+                    updateSet.getValue(valueIndex).accept(this);
+                }
+            }
         }
 
         @Override

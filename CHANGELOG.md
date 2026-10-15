@@ -4,10 +4,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- 提供公开的 `ShardBroadcastOperations`，支持按逻辑表枚举物理目标、显式遍历和顺序合并跨分片查询结果。
+- `ShardBroadcastTarget` 向业务回调提供节点标识、数据源标识、物理 `DataSource` 和真实表名。
+
 ### Fixed
 
 - 避免向业务项目传递并锁定 MyBatis 最低编译版本，允许标准 MyBatis 或 MyBatis-Plus Starter 决定最终版本。
 - 确保 LavShard 托管数据源先于 Spring Boot 默认数据源自动配置注册，无需额外提供 `spring.datasource.url`。
+- 保留多 SET UPDATE 中全部 JDBC 参数的原始下标，并拒绝后续赋值中不受支持的子查询。
+- 对齐 Central Portal 发布约定：区分快照与正式发布 profile，并将 GPG 签名限定在 `central-release`。
 
 ### Planned
 
