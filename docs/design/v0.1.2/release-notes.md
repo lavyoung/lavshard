@@ -39,6 +39,7 @@ v0.1.2 面向需要显式执行跨分片扫描的业务场景，新增公开、�
 
 - 健康检查直接探测已解析的物理数据源，避免通过路由数据源造成不必要的路由依赖。
 - 数据源自动配置顺序与 MyBatis 依赖传递策略已调整，降低 Starter 集成冲突风险。
+- Maven 发布配置区分 `central-snapshot` 与 `central-release`，正式发布时统一执行 GPG 签名。
 
 ## Breaking Changes
 
@@ -86,7 +87,7 @@ List<TaskEntity> tasks = shardBroadcastOperations.queryAll(
 ## Verification
 
 - 已执行：`mvn clean verify -DskipITs`，Core、MyBatis、Starter、示例及非容器集成测试共
-  665 项通过，0 failures, 0 skipped。
+  667 项通过，0 failures, 0 skipped。
 - 覆盖：广播目标去重与排序、结果合并、未知逻辑表、活跃事务拒绝、公开 Bean 自动配置，
   以及多 SET UPDATE 的 JDBC 参数映射回归。
 - 发布前待执行：在具备 Docker 的环境中完成 MySQL Testcontainers 验收；当前环境未安装
