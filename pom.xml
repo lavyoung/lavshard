@@ -10,7 +10,7 @@
     <version>${revision}</version>
     <packaging>pom</packaging>
 
-    <name>${project.artifactId}-${revision}</name>
+    <name>${project.artifactId}</name>
     <description>Lightweight database sharding and routing component</description>
     <url>https://github.com/lavyoung/lavshard</url>
 
@@ -477,6 +477,12 @@
                         <extensions>true</extensions>
                         <configuration>
                             <publishingServerId>central</publishingServerId>
+                            <excludeArtifacts>
+                                <excludeArtifact>lavshard-example</excludeArtifact>
+                                <excludeArtifact>lavshard-example-simple</excludeArtifact>
+                                <excludeArtifact>lavshard-example-multi-datasource</excludeArtifact>
+                                <excludeArtifact>lavshard-test</excludeArtifact>
+                            </excludeArtifacts>
                         </configuration>
                     </plugin>
                     <plugin>

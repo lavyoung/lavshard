@@ -79,6 +79,14 @@ class MavenCentralPublishingConfigurationTest {
         assertThat(text(plugin + "/extensions")).isEqualTo("true");
         assertThat(text(plugin + "/configuration/publishingServerId"))
                 .isEqualTo("central");
+        assertThat(strings(
+                plugin + "/configuration/excludeArtifacts/excludeArtifact"
+        )).containsExactly(
+                "lavshard-example",
+                "lavshard-example-simple",
+                "lavshard-example-multi-datasource",
+                "lavshard-test"
+        );
         assertThat(count(
                 "/project/build/pluginManagement/plugins/plugin"
                         + "[artifactId='central-publishing-maven-plugin']"

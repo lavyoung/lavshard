@@ -39,7 +39,7 @@ v0.1.2 面向需要显式执行跨分片扫描的业务场景，新增公开、�
 
 - 健康检查直接探测已解析的物理数据源，避免通过路由数据源造成不必要的路由依赖。
 - 数据源自动配置顺序与 MyBatis 依赖传递策略已调整，降低 Starter 集成冲突风险。
-- Maven 发布配置区分 `central-snapshot` 与 `central-release`，正式发布时统一执行 GPG 签名。
+- Maven 发布配置区分 `central-snapshot` 与 `central-release`，正式发布时统一执行 GPG 签名，并从发布包排除示例与测试模块。
 
 ## Breaking Changes
 
